@@ -14,7 +14,11 @@ use nom::{
     sequence::{preceded, terminated},
 };
 
+#[cfg(feature = "serde")]
+use serde::{Serialize, Deserialize};
+
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum RefName {
     Branch(Vec<u8>),
     Tag(Vec<u8>),
@@ -23,6 +27,7 @@ pub enum RefName {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum Ref {
     Direct(ObjectId),
     Symbolic(RefName),

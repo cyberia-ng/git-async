@@ -5,7 +5,6 @@ use crate::{
 };
 use alloc::vec::Vec;
 
-#[derive(Debug)]
 pub struct Repo<D> {
     pub(crate) git_dir: D,
 }

@@ -16,8 +16,12 @@ use nom::{
     sequence::{delimited, terminated},
 };
 
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ObjectId(pub [u8; 20]);
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct ObjectId(#[cfg_attr(feature = "serde", serde(with = "serde_bytes"))] pub [u8; 20]);
 
 impl ObjectId {
     pub(crate) fn parse(input: &[u8]) -> nom::IResult<&[u8], Self> {
@@ -38,11 +42,12 @@ impl ObjectId {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum Object {
     Commit(Commit),
     Tag(Tag),
     Tree(Tree),
-    Blob(Vec<u8>),
+    Blob(#[cfg_attr(feature = "serde", serde(with = "serde_bytes"))] Vec<u8>),
 }
 
 impl Object {
@@ -98,16 +103,22 @@ impl Object {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Commit {
     pub id: ObjectId,
+    #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
     pub author_name: Vec<u8>,
+    #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
     pub author_email: Vec<u8>,
     pub author_date: DateTime<FixedOffset>,
+    #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
     pub committer_name: Vec<u8>,
+    #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
     pub committer_email: Vec<u8>,
     pub commit_date: DateTime<FixedOffset>,
     pub tree: ObjectId,
     pub parents: Vec<ObjectId>,
+    #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
     pub message: Vec<u8>,
 }
 
@@ -153,6 +164,7 @@ impl Commit {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum TagType {
     Commit,
     Blob,
@@ -161,14 +173,19 @@ pub enum TagType {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Tag {
     pub id: ObjectId,
     pub object: ObjectId,
     pub tag_type: TagType,
+    #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
     pub tag: Vec<u8>,
+    #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
     pub tagger_name: Vec<u8>,
+    #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
     pub tagger_email: Vec<u8>,
     pub tag_date: DateTime<FixedOffset>,
+    #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
     pub message: Vec<u8>,
 }
 
@@ -233,6 +250,7 @@ fn parse_author_committer_tagger(
 }
 
 #[derive(Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum TreeEntryType {
     File,
     Executable,
@@ -241,13 +259,16 @@ pub enum TreeEntryType {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct TreeEntry {
+    #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
     pub name: Vec<u8>,
     pub entry_type: TreeEntryType,
     pub id: ObjectId,
 }
 
 #[derive(Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Tree {
     pub id: ObjectId,
     pub entries: Vec<TreeEntry>,
