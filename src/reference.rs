@@ -15,14 +15,14 @@ use nom::{
 };
 
 #[cfg(feature = "serde")]
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum RefName {
-    Branch(Vec<u8>),
-    Tag(Vec<u8>),
-    Remote(Vec<u8>),
+    Branch(#[cfg_attr(feature = "serde", serde(with = "serde_bytes"))] Vec<u8>),
+    Tag(#[cfg_attr(feature = "serde", serde(with = "serde_bytes"))] Vec<u8>),
+    Remote(#[cfg_attr(feature = "serde", serde(with = "serde_bytes"))] Vec<u8>),
     Head,
 }
 
