@@ -23,4 +23,8 @@ tempfile = "3.27.0"
 
 [features]
 default = ["serde"]
-serde = ["dep:serde", "dep:serde_bytes", "chrono/serde"]
+serde = [
+  "chrono/serde",
+  "dep:serde",
+  "dep:serde_bytes",
+]

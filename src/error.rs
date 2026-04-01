@@ -2,17 +2,21 @@ use crate::{directory::DirectoryError, object::ObjectId, reference::RefName};
 use alloc::vec::Vec;
 use miniz_oxide::inflate::DecompressError;
 
+#[cfg(feature = "serde")]
+use serde::Serialize;
+
 pub type GResult<T> = core::result::Result<T, Error>;
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Error {
-    Directory(DirectoryError),
+    Directory(#[cfg_attr(feature = "serde", serde(skip))] DirectoryError),
     PathError(Vec<u8>),
-    DecompressError(DecompressError),
+    DecompressError(#[cfg_attr(feature = "serde", serde(skip))] DecompressError),
 
     MalformedObject(ObjectId),
     MalformedRef(RefName),
-    FromHexError(hex::FromHexError),
+    FromHexError(#[cfg_attr(feature = "serde", serde(skip))] hex::FromHexError),
 }
 
 impl From<DirectoryError> for Error {
