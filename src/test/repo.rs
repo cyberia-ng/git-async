@@ -1,5 +1,5 @@
 use crate::{
-    directory::{Directory, DirectoryError},
+    directory::{DirEntry, Directory, DirectoryError},
     repo::Repo,
 };
 use std::{
@@ -8,18 +8,19 @@ use std::{
     io::{self, Read, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
+    rc::Rc,
 };
 use tempfile::{TempDir, tempdir};
 
 #[derive(Debug)]
 pub struct TestRepo {
-    pub location: TempDir,
+    pub location: Rc<TempDir>,
 }
 
 #[derive(Debug, Clone)]
-pub struct TestRepoDirectory<'r> {
-    repo: &'r TestRepo,
-    sub_path: PathBuf,
+pub struct TestRepoDirectory {
+    pub root: Rc<TempDir>,
+    pub sub_path: PathBuf,
 }
 
 impl TestRepo {
@@ -56,7 +57,9 @@ impl TestRepo {
 
     pub fn new() -> io::Result<Self> {
         let dir = tempdir()?;
-        let repo = TestRepo { location: dir };
+        let repo = TestRepo {
+            location: Rc::new(dir),
+        };
         repo.run_git(["init"])?;
         repo.set_user("a user", "an-email-address")?;
         Ok(repo)
@@ -68,9 +71,9 @@ impl TestRepo {
         Ok(())
     }
 
-    pub fn git_dir(&self) -> TestRepoDirectory<'_> {
+    pub fn git_dir(&self) -> TestRepoDirectory {
         TestRepoDirectory {
-            repo: self,
+            root: self.location.clone(),
             sub_path: PathBuf::from(".git"),
         }
     }
@@ -79,31 +82,38 @@ impl TestRepo {
         self.location.path()
     }
 
-    pub fn repo(&self) -> Repo<TestRepoDirectory<'_>> {
+    pub fn repo(&self) -> Repo<TestRepoDirectory> {
         Repo::new(self.git_dir())
     }
 }
 
-impl<'r> Directory for TestRepoDirectory<'r> {
+impl Directory for TestRepoDirectory {
     async fn open_subdir(&self, name: &[u8]) -> Result<Self, DirectoryError> {
         let new_sub_path = self.sub_path.join(str::from_utf8(name).unwrap());
         Ok(Self {
-            repo: self.repo,
+            root: self.root.clone(),
             sub_path: new_sub_path,
         })
     }
 
-    async fn list_dir(&self) -> Result<Vec<Vec<u8>>, DirectoryError> {
-        let dir = read_dir(self.repo.location.path().join(&self.sub_path)).unwrap();
+    async fn list_dir(&self) -> Result<Vec<DirEntry>, DirectoryError> {
+        let dir = read_dir(self.root.path().join(&self.sub_path)).unwrap();
         let entries = dir
             .map_while(|entry| {
                 if let Ok(entry) = entry {
-                    Some(entry.file_name())
+                    let file_type = entry.file_type().unwrap();
+                    let file_name = entry.file_name().into_encoded_bytes();
+                    if file_type.is_dir() {
+                        Some(DirEntry::Directory(file_name))
+                    } else if file_type.is_file() {
+                        Some(DirEntry::File(file_name))
+                    } else {
+                        panic!("symlinks not supported in tests");
+                    }
                 } else {
                     None
                 }
             })
-            .map(|file_name| file_name.to_owned().into_encoded_bytes())
             .collect::<Vec<_>>();
         Ok(entries)
     }
@@ -112,8 +122,7 @@ impl<'r> Directory for TestRepoDirectory<'r> {
         let mut file = OpenOptions::new()
             .read(true)
             .open(
-                self.repo
-                    .location
+                self.root
                     .path()
                     .join(&self.sub_path)
                     .join(str::from_utf8(name).unwrap()),
