@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", serde(tag = "type", content = "value"))]
 pub enum RefName {
     Branch(#[cfg_attr(feature = "serde", serde(with = "serde_bytes"))] Vec<u8>),
     Tag(#[cfg_attr(feature = "serde", serde(with = "serde_bytes"))] Vec<u8>),
@@ -28,6 +29,7 @@ pub enum RefName {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", serde(tag = "type", content = "value"))]
 pub enum Ref {
     Direct(ObjectId),
     Symbolic(RefName),
