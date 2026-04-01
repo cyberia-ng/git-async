@@ -1,5 +1,5 @@
 use crate::{
-    directory::Directory,
+    directory::{Directory, search_for_files},
     error::{Error, GResult},
     reference::{Ref, RefName},
 };
@@ -15,12 +15,35 @@ impl<D: Directory> Repo<D> {
     }
 
     pub async fn refs(&self) -> GResult<Vec<RefName>> {
-        // let refs_dir = self.git_dir.open_subdir(b"refs").await?;
-        // let heads_dir = refs_dir.open_subdir(b"heads").await?;
-        // let branch_names = heads_dir.list_dir().await?;
-        // let branches = branch_names.into_iter().map(RefName::Branch);
-        // let tags_dir = refs_dir.open_subdir(b"tags").await?;
-        todo!()
+        let refs_dir = self.git_dir.open_subdir(b"refs").await?;
+        let refs_paths = search_for_files(&refs_dir).await?;
+        let mut out: Vec<RefName> = Vec::new();
+        out.push(RefName::Head);
+        for path in refs_paths {
+            let (prefix, rest) = path.split_at(1);
+            if let Some(prefix) = prefix.get(0) {
+                let mut name: Vec<u8> = Vec::new();
+                for component in rest {
+                    if !name.is_empty() {
+                        name.push(b'/');
+                    }
+                    name.extend_from_slice(&component);
+                }
+                match prefix.as_slice() {
+                    b"heads" => {
+                        out.push(RefName::Branch(name));
+                    }
+                    b"tags" => {
+                        out.push(RefName::Tag(name));
+                    }
+                    b"remotes" => {
+                        out.push(RefName::Remote(name));
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Ok(out)
     }
 
     pub async fn head(&self) -> GResult<Ref> {
@@ -49,11 +72,12 @@ mod tests {
 
     #[test]
     fn read_refs() {
-        // TODO: refs with slashes?
         let test_repo = TestRepo::new().unwrap();
         make_basic_commit(&test_repo);
         test_repo.run_git(["branch", "a-branch"]).unwrap();
+        test_repo.run_git(["branch", "foo/a-branch"]).unwrap();
         test_repo.run_git(["tag", "thin-tag"]).unwrap();
+        test_repo.run_git(["tag", "bar/thin-tag"]).unwrap();
         test_repo
             .run_git(["tag", "-a", "-m", "a tag message", "fat-tag"])
             .unwrap();
@@ -64,14 +88,17 @@ mod tests {
         let repo = test_repo.repo();
         let mut refs = block_on(repo.refs()).unwrap();
         refs.sort();
-        let expected = vec![
+        let mut expected = vec![
             RefName::Head,
             RefName::Branch(b"main".to_vec()),
             RefName::Branch(b"a-branch".to_vec()),
+            RefName::Branch(b"foo/a-branch".to_vec()),
             RefName::Tag(b"thin-tag".to_vec()),
+            RefName::Tag(b"bar/thin-tag".to_vec()),
             RefName::Tag(b"fat-tag".to_vec()),
             RefName::Remote(b"origin/main".to_vec()),
         ];
+        expected.sort();
         assert_eq!(&refs, &expected);
     }
 }
