@@ -1,5 +1,5 @@
 use alloc::{boxed::Box, vec::Vec};
-use core::{any::Any, future::Future};
+use core::{any::Any, future::Future, ops::Range};
 
 pub enum DirEntry {
     File(Vec<u8>),
@@ -10,9 +10,20 @@ pub enum DirEntry {
 pub struct DirectoryError(pub Box<dyn Any>);
 
 pub trait Directory: Sized + Clone {
+    type File: File;
+
     fn open_subdir(&self, name: &[u8]) -> impl Future<Output = Result<Self, DirectoryError>>;
     fn list_dir(&self) -> impl Future<Output = Result<Vec<DirEntry>, DirectoryError>>;
-    fn read_file(&self, name: &[u8]) -> impl Future<Output = Result<Vec<u8>, DirectoryError>>;
+    fn open_file(&self, name: &[u8]) -> impl Future<Output = Result<Self::File, DirectoryError>>;
+}
+
+pub trait File: Sized {
+    fn read_all(&mut self) -> impl Future<Output = Result<Vec<u8>, DirectoryError>>;
+    fn read_segment(
+        &mut self,
+        offset: u64,
+        dest: &mut [u8],
+    ) -> impl Future<Output = Result<(), DirectoryError>>;
 }
 
 pub(crate) type PathComponent = Vec<u8>;
@@ -70,10 +81,13 @@ mod tests {
     use crate::test::repo::TestRepoDirectory;
 
     use super::*;
-    use std::{
-        fs::{OpenOptions, create_dir}, io::{self, Write}, path::PathBuf, rc::Rc
-    };
     use futures::executor::block_on;
+    use std::{
+        fs::{OpenOptions, create_dir},
+        io::{self, Write},
+        path::PathBuf,
+        rc::Rc,
+    };
     use tempfile::TempDir;
 
     #[test]

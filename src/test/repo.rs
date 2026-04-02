@@ -1,11 +1,11 @@
 use crate::{
-    directory::{DirEntry, Directory, DirectoryError},
+    directory::{DirEntry, Directory, DirectoryError, File},
     repo::Repo,
 };
 use std::{
     ffi::OsStr,
-    fs::{OpenOptions, read_dir},
-    io::{self, Read, Write},
+    fs::{self, OpenOptions, read_dir},
+    io::{self, Read, Seek, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
     rc::Rc,
@@ -21,6 +21,11 @@ pub struct TestRepo {
 pub struct TestRepoDirectory {
     pub root: Rc<TempDir>,
     pub sub_path: PathBuf,
+}
+
+#[derive(Debug)]
+pub struct TestRepoFile {
+    pub file: fs::File,
 }
 
 impl TestRepo {
@@ -88,6 +93,8 @@ impl TestRepo {
 }
 
 impl Directory for TestRepoDirectory {
+    type File = TestRepoFile;
+
     async fn open_subdir(&self, name: &[u8]) -> Result<Self, DirectoryError> {
         let new_sub_path = self.sub_path.join(str::from_utf8(name).unwrap());
         Ok(Self {
@@ -118,8 +125,8 @@ impl Directory for TestRepoDirectory {
         Ok(entries)
     }
 
-    async fn read_file(&self, name: &[u8]) -> Result<Vec<u8>, DirectoryError> {
-        let mut file = OpenOptions::new()
+    async fn open_file(&self, name: &[u8]) -> Result<Self::File, DirectoryError> {
+        let file = OpenOptions::new()
             .read(true)
             .open(
                 self.root
@@ -128,9 +135,22 @@ impl Directory for TestRepoDirectory {
                     .join(str::from_utf8(name).unwrap()),
             )
             .unwrap();
+        Ok(TestRepoFile { file })
+    }
+}
+
+impl File for TestRepoFile {
+    async fn read_all(&mut self) -> Result<Vec<u8>, DirectoryError> {
+        self.file.seek(io::SeekFrom::Start(0)).unwrap();
         let mut out = vec![];
-        file.read_to_end(&mut out).unwrap();
+        self.file.read_to_end(&mut out).unwrap();
         Ok(out)
+    }
+
+    async fn read_segment(&mut self, offset: u64, dest: &mut [u8]) -> Result<(), DirectoryError> {
+        self.file.seek(io::SeekFrom::Start(offset)).unwrap();
+        self.file.read_exact(dest).unwrap();
+        Ok(())
     }
 }
 
@@ -148,4 +168,38 @@ pub fn make_basic_commit(test_repo: &TestRepo) {
     test_repo
         .run_git(["commit", "-m", "a commit message"])
         .unwrap();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use futures::executor::block_on;
+    use std::fs::OpenOptions;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_seek_offset() {
+        let mut test_contents = vec![0u8; 1024];
+        for idx in 0..test_contents.len() {
+            test_contents[idx] = (idx % 256).try_into().unwrap();
+        }
+        let dir = tempdir().unwrap();
+        let mut f = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(dir.path().join("a-file"))
+            .unwrap();
+        f.write_all(&test_contents).unwrap();
+        let dir = TestRepoDirectory {
+            root: Rc::new(dir),
+            sub_path: PathBuf::new(),
+        };
+        let offset: usize = 700;
+        let length: usize = 32;
+        let mut file = block_on(dir.open_file(b"a-file")).unwrap();
+        let mut content = vec![0u8; length];
+        block_on(file.read_segment(offset.try_into().unwrap(), &mut content)).unwrap();
+        assert_eq!(content.len(), length);
+        assert_eq!(&content, &test_contents[offset..(offset + length)]);
+    }
 }

@@ -1,5 +1,5 @@
 use crate::{
-    directory::Directory,
+    directory::{Directory, File},
     error::{Error, GResult},
     repo::Repo,
 };
@@ -60,7 +60,7 @@ impl Object {
         hex::encode_to_slice(suffix, &mut suffix_buf)?;
         let mut dir = repo.git_dir.open_subdir(b"objects").await?;
         dir = dir.open_subdir(&prefix_buf).await?;
-        let data = dir.read_file(&suffix_buf).await?;
+        let data = dir.open_file(&suffix_buf).await?.read_all().await?;
         let data = decompress_to_vec_zlib(&data)?;
 
         let (_, out) = Object::parser(id)

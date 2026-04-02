@@ -1,5 +1,5 @@
 use crate::{
-    directory::{Directory, search_for_files},
+    directory::{Directory, File, search_for_files},
     error::{Error, GResult},
     reference::{Ref, RefName},
 };
@@ -47,7 +47,12 @@ impl<D: Directory> Repo<D> {
     }
 
     pub async fn head(&self) -> GResult<Ref> {
-        let ref_content = self.git_dir.read_file(b"HEAD").await?;
+        let ref_content = self
+            .git_dir
+            .open_file(b"HEAD")
+            .await?
+            .read_all()
+            .await?;
         let (_, reference) =
             Ref::parse(&ref_content).map_err(|_| Error::MalformedRef(RefName::Head))?;
         Ok(reference)

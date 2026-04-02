@@ -1,5 +1,5 @@
 use crate::{
-    directory::Directory,
+    directory::{Directory, File},
     error::{Error, GResult},
     object::{Object, ObjectId},
     repo::Repo,
@@ -39,7 +39,7 @@ impl Ref {
     pub async fn lookup<D: Directory>(repo: &Repo<D>, name: &RefName) -> GResult<Ref> {
         match name {
             RefName::Head => {
-                let ref_content = repo.git_dir.read_file(b"HEAD").await?;
+                let ref_content = repo.git_dir.open_file(b"HEAD").await?.read_all().await?;
                 let (_, reference) =
                     Ref::parse(&ref_content).map_err(|_| Error::MalformedRef(name.clone()))?;
                 Ok(reference)
@@ -54,7 +54,7 @@ impl Ref {
                 for component in path_components {
                     dir = dir.open_subdir(component).await?;
                 }
-                let file_content = dir.read_file(file_name).await?;
+                let file_content = dir.open_file(file_name).await?.read_all().await?;
                 let (_, reference) =
                     Self::parse(&file_content).map_err(|_| Error::MalformedRef(name.clone()))?;
                 Ok(reference)
