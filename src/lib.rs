@@ -4,9 +4,9 @@ extern crate alloc;
 pub mod directory;
 pub mod error;
 pub mod object;
+mod pack_files;
 pub mod reference;
 pub mod repo;
-mod pack_files;
 
 #[cfg(test)]
 mod test {

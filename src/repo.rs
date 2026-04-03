@@ -21,13 +21,13 @@ impl<D: Directory> Repo<D> {
         out.push(RefName::Head);
         for path in refs_paths {
             let (prefix, rest) = path.split_at(1);
-            if let Some(prefix) = prefix.get(0) {
+            if let Some(prefix) = prefix.first() {
                 let mut name: Vec<u8> = Vec::new();
                 for component in rest {
                     if !name.is_empty() {
                         name.push(b'/');
                     }
-                    name.extend_from_slice(&component);
+                    name.extend_from_slice(component);
                 }
                 match prefix.as_slice() {
                     b"heads" => {
@@ -47,12 +47,7 @@ impl<D: Directory> Repo<D> {
     }
 
     pub async fn head(&self) -> GResult<Ref> {
-        let ref_content = self
-            .git_dir
-            .open_file(b"HEAD")
-            .await?
-            .read_all()
-            .await?;
+        let ref_content = self.git_dir.open_file(b"HEAD").await?.read_all().await?;
         let (_, reference) =
             Ref::parse(&ref_content).map_err(|_| Error::MalformedRef(RefName::Head))?;
         Ok(reference)

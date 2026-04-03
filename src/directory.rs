@@ -1,5 +1,5 @@
 use alloc::{boxed::Box, vec::Vec};
-use core::{any::Any, future::Future, ops::Range};
+use core::{any::Any, future::Future};
 
 pub enum DirEntry {
     File(Vec<u8>),
@@ -38,8 +38,7 @@ pub(crate) async fn search_for_files<D: Directory>(root: &D) -> Result<Vec<Path>
     let mut out: Vec<Path> = Vec::new();
     let mut stack: Vec<SearchPath> = Vec::new();
     stack.push(Directory(Vec::new()));
-    while !stack.is_empty() {
-        let this = stack.pop().unwrap();
+    while let Some(this) = stack.pop() {
         match this {
             File(path) => out.push(path),
             Directory(dir) => {
@@ -71,7 +70,7 @@ pub(crate) async fn open_dir_path<D: Directory>(
 ) -> Result<D, DirectoryError> {
     let mut dir = directory.clone();
     for component in path {
-        dir = dir.open_subdir(&component).await?;
+        dir = dir.open_subdir(component).await?;
     }
     Ok(dir)
 }
@@ -93,7 +92,11 @@ mod tests {
     #[test]
     fn test_search_for_files() {
         fn touch(path: impl AsRef<std::path::Path>) -> io::Result<()> {
-            let mut f = OpenOptions::new().create(true).write(true).open(path)?;
+            let mut f = OpenOptions::new()
+                .create(true)
+                .truncate(true)
+                .write(true)
+                .open(path)?;
             f.flush()?;
             Ok(())
         }

@@ -175,8 +175,8 @@ mod tests {
     #[test]
     fn test_seek_offset() {
         let mut test_contents = vec![0u8; 1024];
-        for idx in 0..test_contents.len() {
-            test_contents[idx] = (idx % 256).try_into().unwrap();
+        for (idx, item) in test_contents.iter_mut().enumerate() {
+            *item = (idx % 256).try_into().unwrap();
         }
         let dir = tempdir().unwrap();
         let mut f = OpenOptions::new()
