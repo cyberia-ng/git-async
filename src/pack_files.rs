@@ -9,37 +9,55 @@ use crate::{
 use alloc::vec::Vec;
 
 struct PackObjectLocation {
-    pack_id: Vec<u8>,
+    pack_file_name: Vec<u8>,
     offset: u64,
 }
 
 pub async fn find_object<D: Directory>(
     repo: &Repo<D>,
     id: ObjectId,
-) -> GResult<PackObjectLocation> {
+) -> GResult<Option<PackObjectLocation>> {
     let pack_dir = repo
         .git_dir
         .open_subdir(b"objects")
         .await?
         .open_subdir(b"pack")
         .await?;
-    let pack_ids: Vec<&[u8]> = pack_dir
+    let idx_filenames: Vec<Vec<u8>> = pack_dir
         .list_dir()
         .await?
-        .iter()
-        .filter_map(|dirent| -> Option<&[u8]> {
+        .into_iter()
+        .filter_map(|dirent| -> Option<Vec<u8>> {
             use DirEntry::*;
             let name = if let File(name) = dirent {
                 Some(name)
             } else {
                 None
             }?;
-            let s = name.strip_prefix(b"pack-")?;
-            let s = s.strip_suffix(b".idx")?;
-            Some(s)
+            if name.get(0..5) == Some(b"pack-")
+                && name.get((name.len() - 4)..name.len()) == Some(b".idx")
+            {
+                Some(name)
+            } else {
+                None
+            }
         })
         .collect();
-    todo!()
+    let mut location: Option<PackObjectLocation> = None;
+    for idx in idx_filenames {
+        let mut idx_file = pack_dir.open_file(&idx).await?;
+        if let Some((obj_idx, total_objects)) = find_object_idx(&mut idx_file, id).await? {
+            let offset = get_obj_packfile_offset(&mut idx_file, obj_idx, total_objects).await?;
+            let mut pack_file_name = idx.strip_suffix(b".idx").unwrap().to_vec();
+            pack_file_name.extend_from_slice(b".pack");
+            location = Some(PackObjectLocation {
+                pack_file_name,
+                offset,
+            });
+            break;
+        }
+    }
+    Ok(location)
 }
 
 pub async fn find_object_idx<F: File>(file: &mut F, id: ObjectId) -> GResult<Option<(u32, u32)>> {
