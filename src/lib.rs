@@ -6,6 +6,7 @@ pub mod error;
 pub mod object;
 pub mod reference;
 pub mod repo;
+mod pack_files;
 
 #[cfg(test)]
 mod test {

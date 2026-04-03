@@ -33,22 +33,13 @@ impl TestRepo {
         &self,
         args: impl IntoIterator<Item = impl AsRef<OsStr>>,
     ) -> io::Result<Vec<u8>> {
-        self.run_git_stdin(args, &[])
-    }
-
-    pub fn run_git_stdin(
-        &self,
-        args: impl IntoIterator<Item = impl AsRef<OsStr>>,
-        stdin: &[u8],
-    ) -> io::Result<Vec<u8>> {
         let mut git_process = Command::new("git")
-            .stdin(Stdio::piped())
+            .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
-            .args([OsStr::new("-C"), self.location.path().as_ref()])
+            .current_dir(self.location.path())
             .args(args)
             .spawn()?;
-        git_process.stdin.take().unwrap().write_all(stdin)?;
         let status = git_process.wait()?;
         assert!(status.success());
         let mut output = Vec::new();
