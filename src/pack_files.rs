@@ -42,7 +42,7 @@ pub async fn find_object<D: Directory>(
     todo!()
 }
 
-pub async fn find_object_idx<F: File>(file: &mut F, id: ObjectId) -> GResult<Option<u32>> {
+pub async fn find_object_idx<F: File>(file: &mut F, id: ObjectId) -> GResult<Option<(u32, u32)>> {
     let mut buf = [0u8; 4];
     file.read_segment(0x0, &mut buf).await?;
     if buf != [0xff, b't', b'O', b'c'] {
@@ -53,6 +53,11 @@ pub async fn find_object_idx<F: File>(file: &mut F, id: ObjectId) -> GResult<Opt
         return Err(Error::UnsupportedIndexVersion);
     }
     let fanout_offset: u64 = 0x08;
+
+    file.read_segment(u64::from(fanout_offset) + 4 * 0xff, &mut buf)
+        .await?;
+    let total_objects = u32::from_be_bytes(buf.clone());
+
     let first_oid_byte = id.0[0];
     let fanout_oid_offset: u64 = u64::from(fanout_offset) + 4 * u64::from(first_oid_byte);
 
@@ -87,7 +92,33 @@ pub async fn find_object_idx<F: File>(file: &mut F, id: ObjectId) -> GResult<Opt
             }
         }
     }
-    Ok(obj_idx)
+    Ok(obj_idx.map(|idx| (idx, total_objects)))
+}
+
+pub async fn get_obj_packfile_offset<F: File>(
+    idx_file: &mut F,
+    obj_idx: u32,
+    total_objects: u32,
+) -> GResult<u64> {
+    let fanout: u64 = 0x8;
+    let object_ids: u64 = fanout + 4 * 256;
+    let crc_table: u64 = object_ids + u64::from(total_objects) * 20;
+    let short_table: u64 = crc_table + u64::from(total_objects) * 4;
+    let mut buf = [0u8; 4];
+    let short_entry: u64 = short_table + u64::from(obj_idx) * 4;
+    idx_file.read_segment(short_entry, &mut buf).await?;
+    let packfile_offset_short = u32::from_be_bytes(buf.clone());
+    if packfile_offset_short & 0x80000000 != 0 {
+        let long_table_idx: u32 = packfile_offset_short & 0x7fffffff;
+        let long_table_offset: u64 = short_table + 4 * u64::from(total_objects);
+        let long_entry: u64 = long_table_offset + 8 * u64::from(long_table_idx);
+        let mut buf = [0u8; 8];
+        idx_file.read_segment(long_entry, &mut buf).await?;
+        let packfile_offset_long = u64::from_be_bytes(buf.clone());
+        Ok(packfile_offset_long)
+    } else {
+        Ok(u64::from(packfile_offset_short))
+    }
 }
 
 #[cfg(test)]
@@ -95,20 +126,20 @@ mod tests {
     use super::*;
     use crate::{
         directory::Directory,
-        error::GResult,
         test::repo::{TestRepo, TestRepoFile},
     };
     use futures::executor::block_on;
     use hex_literal::hex;
+    use rand_core::{Rng, SeedableRng};
+    use rand_pcg::Pcg32;
     use std::{
         fs::OpenOptions,
         io::Write,
         process::{Command, Stdio},
     };
 
-    #[test]
-    fn test_find_object_idx() {
-        // This test is sensitive to git's packfile algorithm.
+    fn make_deterministic_packfile_repo() -> (TestRepo, TestRepoFile, TestRepoFile) {
+        // This test helper is sensitive to git's packfile algorithm.
         // Expected data was generated with git 2.52.0.
         let repo = TestRepo::new().unwrap();
         repo.set_user("a user", "an-email-address").unwrap();
@@ -135,25 +166,31 @@ mod tests {
             .trim_ascii_end()
             .to_vec();
         assert_eq!(head_id, b"78dc5b70bd81aa46ec7dfce87a69826e354a916b");
-        repo.run_git(["repack"]).unwrap();
-        let mut idx_file = block_on((async || -> GResult<TestRepoFile> {
-            Ok(repo
-                .repo()
-                .git_dir
-                .open_subdir(b"objects")
-                .await?
-                .open_subdir(b"pack")
-                .await?
-                .open_file(b"pack-2692754bdea34cf95fac0765d24ef49e53188be3.idx")
-                .await?)
-        })())
+        repo.run_git(["gc"]).unwrap();
+        let pack_dir = block_on(
+            block_on(repo.repo().git_dir.open_subdir(b"objects"))
+                .unwrap()
+                .open_subdir(b"pack"),
+        )
         .unwrap();
+        let idx_file =
+            block_on(pack_dir.open_file(b"pack-2692754bdea34cf95fac0765d24ef49e53188be3.idx"))
+                .unwrap();
+        let pack_file =
+            block_on(pack_dir.open_file(b"pack-2692754bdea34cf95fac0765d24ef49e53188be3.pack"))
+                .unwrap();
+        (repo, idx_file, pack_file)
+    }
+
+    #[test]
+    fn test_find_object_idx() {
+        let (_repo, mut idx_file, _pack_file) = make_deterministic_packfile_repo();
         let obj_idx = block_on(find_object_idx(
             &mut idx_file,
             ObjectId(hex!("78dc5b70bd81aa46ec7dfce87a69826e354a916b")),
         ))
         .unwrap();
-        assert_eq!(obj_idx, Some(1));
+        assert_eq!(obj_idx, Some((1, 3)));
         let null_obj_idx = block_on(find_object_idx(
             &mut idx_file,
             ObjectId(hex!("0000000000000000000000000000000000000000")),
@@ -166,5 +203,65 @@ mod tests {
         ))
         .unwrap();
         assert_eq!(similar_obj_idx, None);
+    }
+
+    #[test]
+    fn test_get_obj_packfile_offset_normal() {
+        let (_repo, mut idx_file, _pack_file) = make_deterministic_packfile_repo();
+        let pack_offset = block_on(get_obj_packfile_offset(&mut idx_file, 1, 3)).unwrap();
+        assert_eq!(pack_offset, 0x0c);
+    }
+
+    #[ignore]
+    #[test]
+    fn test_get_obj_packfile_offset_huge() {
+        // This test takes a long time and requires many GiB of disk space. Run it by passing
+        // --ignored to cargo test
+        let (repo, _, _) = make_deterministic_packfile_repo();
+        let mut huge_file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .open(repo.location.path().join("a-huge-file"))
+            .unwrap();
+        let mut buf = vec![0u8; 64 * 1048576];
+        let mut rng = Pcg32::seed_from_u64(0);
+        for _ in 0..(4096 / 64) {
+            rng.fill_bytes(&mut buf);
+            huge_file.write_all(&buf).unwrap();
+        }
+        huge_file.flush().unwrap();
+
+        let metadata = huge_file.metadata().unwrap();
+        assert_eq!(metadata.len(), 4096 * 1048576);
+        repo.run_git(["add", "a-huge-file"]).unwrap();
+
+        let mut p = Command::new("git")
+            .current_dir(repo.location.path())
+            .env("GIT_AUTHOR_DATE", "2000-01-01T00:00:00Z")
+            .env("GIT_COMMITTER_DATE", "2000-01-01T00:00:00Z")
+            .args(["commit", "-m", "another commit"])
+            .stdout(Stdio::null())
+            .spawn()
+            .unwrap();
+        let status = p.wait().unwrap();
+        assert!(status.success());
+        let head_id = repo
+            .run_git(["rev-parse", "HEAD"])
+            .unwrap()
+            .trim_ascii_end()
+            .to_vec();
+        assert_eq!(head_id, b"2b9789abe6006287ee2e70570b23ea421084de08");
+        repo.run_git(["gc"]).unwrap();
+        let pack_dir = block_on(
+            block_on(repo.repo().git_dir.open_subdir(b"objects"))
+                .unwrap()
+                .open_subdir(b"pack"),
+        )
+        .unwrap();
+        let mut idx_file =
+            block_on(pack_dir.open_file(b"pack-5f4c101929db231a8ae42b13a04abc8aad107a7d.idx"))
+                .unwrap();
+        let pack_offset = block_on(get_obj_packfile_offset(&mut idx_file, 5, 6)).unwrap();
+        assert_eq!(pack_offset, 0x0100140150);
     }
 }

@@ -26,6 +26,7 @@ pub struct TestRepoDirectory {
 #[derive(Debug)]
 pub struct TestRepoFile {
     pub file: fs::File,
+    _temp_dir: Rc<TempDir>,
 }
 
 impl TestRepo {
@@ -126,7 +127,10 @@ impl Directory for TestRepoDirectory {
                     .join(str::from_utf8(name).unwrap()),
             )
             .unwrap();
-        Ok(TestRepoFile { file })
+        Ok(TestRepoFile {
+            file,
+            _temp_dir: self.root.clone(),
+        })
     }
 }
 
