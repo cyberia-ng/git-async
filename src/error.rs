@@ -19,6 +19,7 @@ pub enum Error {
     FromHexError(#[cfg_attr(feature = "serde", serde(skip))] hex::FromHexError),
 
     UnsupportedIndexVersion,
+    UnsupportedPackVersion,
 }
 
 impl From<DirectoryError> for Error {

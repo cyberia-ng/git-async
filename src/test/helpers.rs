@@ -21,7 +21,14 @@ pub fn make_basic_repo() -> io::Result<TestRepo> {
         "a user",
         "an-email-address",
         "2000-01-01T00:00:00Z",
-        "2000-01-01T00:00Z",
+    )?;
+    repo.tag_annotated(
+        "a-fat-tag",
+        "HEAD",
+        "a tag",
+        "a user",
+        "an-email-address",
+        "2000-01-01T00:00:00Z",
     )?;
     Ok(repo)
 }

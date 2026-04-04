@@ -48,7 +48,7 @@ pub enum Object {
     Commit(Commit),
     Tag(Tag),
     Tree(Tree),
-    Blob(#[cfg_attr(feature = "serde", serde(with = "serde_bytes"))] Vec<u8>),
+    Blob(Blob),
 }
 
 impl Object {
@@ -67,6 +67,16 @@ impl Object {
             .parse(data.as_ref())
             .map_err(|_| Error::MalformedObject(id))?;
         Ok(out)
+    }
+
+    pub fn id(&self) -> ObjectId {
+        use Object::*;
+        match self {
+            Commit(commit) => commit.id,
+            Tag(tag) => tag.id,
+            Tree(tree) => tree.id,
+            Blob(blob) => blob.id,
+        }
     }
 
     fn parser<'a>(id: ObjectId) -> impl Fn(&'a [u8]) -> nom::IResult<&'a [u8], Object> {
@@ -95,7 +105,13 @@ impl Object {
                 b"tree" => all_consuming(Tree::parser(id))
                     .map(Object::Tree)
                     .parse(body)?,
-                b"blob" => (&[][..], Object::Blob(body.to_vec())),
+                b"blob" => (
+                    &[][..],
+                    Object::Blob(Blob {
+                        id,
+                        data: body.to_vec(),
+                    }),
+                ),
                 _ => unreachable!(),
             };
             Ok((&[][..], out))
@@ -308,6 +324,14 @@ impl Tree {
                 .parse(input)
         }
     }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct Blob {
+    pub id: ObjectId,
+    #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
+    pub data: Vec<u8>,
 }
 
 #[cfg(test)]
@@ -568,7 +592,7 @@ a tag
             Object::Blob(blob) => blob,
             _ => panic!(),
         };
-        assert_eq!(object, &[]);
+        assert_eq!(object.data, &[]);
     }
 
     #[test]
@@ -579,6 +603,6 @@ a tag
             Object::Blob(blob) => blob,
             _ => panic!(),
         };
-        assert_eq!(object, b"hello world");
+        assert_eq!(object.data, b"hello world");
     }
 }

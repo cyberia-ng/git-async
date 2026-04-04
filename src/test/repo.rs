@@ -85,15 +85,36 @@ impl TestRepo {
         message: &str,
         author_name: &str,
         author_email: &str,
-        author_date: &str,
-        committer_date: &str,
+        date: &str,
     ) -> io::Result<()> {
         self.set_user(author_name, author_email)?;
         let mut p = Command::new("git")
             .current_dir(self.location.path())
-            .env("GIT_AUTHOR_DATE", author_date)
-            .env("GIT_COMMITTER_DATE", committer_date)
+            .env("GIT_AUTHOR_DATE", date)
+            .env("GIT_COMMITTER_DATE", date)
             .args(["commit", "-m", message])
+            .stdout(Stdio::null())
+            .spawn()
+            .unwrap();
+        let status = p.wait().unwrap();
+        assert!(status.success());
+        Ok(())
+    }
+
+    pub fn tag_annotated(
+        &self,
+        tag_name: &str,
+        object: &str,
+        message: &str,
+        author_name: &str,
+        author_email: &str,
+        date: &str,
+    ) -> io::Result<()> {
+        self.set_user(author_name, author_email)?;
+        let mut p = Command::new("git")
+            .current_dir(self.location.path())
+            .env("GIT_COMMITTER_DATE", date)
+            .args(["tag", "-a", "-m", message, tag_name, object])
             .stdout(Stdio::null())
             .spawn()
             .unwrap();

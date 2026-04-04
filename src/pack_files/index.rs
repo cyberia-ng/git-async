@@ -149,14 +149,14 @@ mod tests {
     fn test_find_object_idx() {
         let repo = make_packfile_repo().unwrap();
         let mut idx_file = repo
-            .pack_idx_file(b"2692754bdea34cf95fac0765d24ef49e53188be3")
+            .pack_idx_file(b"220ae2051dba7a9606c35293e9ff1493ff59869f")
             .unwrap();
         let obj_idx = block_on(find_object_idx(
             &mut idx_file,
             ObjectId(hex!("78dc5b70bd81aa46ec7dfce87a69826e354a916b")),
         ))
         .unwrap();
-        assert_eq!(obj_idx, Some((1, 3)));
+        assert_eq!(obj_idx, Some((1, 4)));
         let null_obj_idx = block_on(find_object_idx(
             &mut idx_file,
             ObjectId(hex!("0000000000000000000000000000000000000000")),
@@ -175,9 +175,9 @@ mod tests {
     fn test_get_obj_packfile_offset_normal() {
         let repo = make_packfile_repo().unwrap();
         let mut idx_file = repo
-            .pack_idx_file(b"2692754bdea34cf95fac0765d24ef49e53188be3")
+            .pack_idx_file(b"220ae2051dba7a9606c35293e9ff1493ff59869f")
             .unwrap();
-        let pack_offset = block_on(get_obj_packfile_offset(&mut idx_file, 1, 3)).unwrap();
+        let pack_offset = block_on(get_obj_packfile_offset(&mut idx_file, 1, 4)).unwrap();
         assert_eq!(pack_offset, 0x0c);
     }
 
@@ -204,7 +204,6 @@ mod tests {
             "another commit",
             "a user",
             "an-email-address",
-            "2000-01-01T00:00:00Z",
             "2000-01-01T00:00:00Z",
         )
         .unwrap();
