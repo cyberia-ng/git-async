@@ -23,7 +23,7 @@ pub trait File: Sized {
         &mut self,
         offset: u64,
         dest: &mut [u8],
-    ) -> impl Future<Output = Result<(), DirectoryError>>;
+    ) -> impl Future<Output = Result<usize, DirectoryError>>;
 }
 
 pub(crate) type PathComponent = Vec<u8>;

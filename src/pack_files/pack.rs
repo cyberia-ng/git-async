@@ -39,8 +39,8 @@ async fn read_pack_object<F: File>(
         return Err(Error::UnsupportedPackVersion);
     }
 
-    const BUF_SIZE: usize = 16;
-    let mut buf = [0u8; BUF_SIZE];
+    const BUF_SIZE: usize = 4096;
+    let mut buf = vec![0u8; BUF_SIZE];
     let mut buf_count: usize = 0;
     let mut obj_type: Option<PackObjectType> = None;
     let mut obj_size: usize = 0;
@@ -78,8 +78,6 @@ async fn read_pack_object<F: File>(
         }
         buf_count += 1;
     }
-    #[cfg(test)]
-    dbg!(obj_size);
 
     let object_body_offset = offset + u64::try_from(idx).unwrap() + 1;
     let mut body = vec![0u8; obj_size.next_power_of_two()];

@@ -2,6 +2,7 @@ use crate::{
     directory::{DirEntry, Directory, DirectoryError, File},
     repo::Repo,
 };
+use core::cmp::min;
 use std::{
     ffi::OsStr,
     fs::{self, OpenOptions, read_dir},
@@ -219,10 +220,17 @@ impl File for TestRepoFile {
         Ok(out)
     }
 
-    async fn read_segment(&mut self, offset: u64, dest: &mut [u8]) -> Result<(), DirectoryError> {
+    async fn read_segment(
+        &mut self,
+        offset: u64,
+        dest: &mut [u8],
+    ) -> Result<usize, DirectoryError> {
+        let metadata = self.file.metadata().unwrap();
+        let available_len = metadata.len() - offset;
+        let read_len = min(usize::try_from(available_len).unwrap(), dest.len());
         self.file.seek(io::SeekFrom::Start(offset)).unwrap();
-        self.file.read_exact(dest).unwrap();
-        Ok(())
+        self.file.read_exact(&mut dest[0..read_len]).unwrap();
+        Ok(read_len)
     }
 }
 
