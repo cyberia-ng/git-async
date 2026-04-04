@@ -133,7 +133,7 @@ async fn get_obj_packfile_offset<F: File>(
 
 #[cfg(test)]
 mod tests {
-    use crate::test::helpers::{make_file, make_packfile_repo};
+    use crate::test::helpers::{make_basic_repo, make_file, make_packfile_repo};
     use futures::executor::block_on;
     use hex_literal::hex;
     use rand_core::{Rng, SeedableRng};
@@ -183,19 +183,29 @@ mod tests {
     fn test_get_obj_packfile_offset_huge() {
         // This test takes a long time and requires many GiB of disk space. Run it by passing
         // --ignored to cargo test
-        let repo = make_packfile_repo().unwrap();
-        let mut huge_file = make_file(&repo, "a-huge-file").unwrap();
-        let mut buf = vec![0u8; 64 * 1048576];
+        let repo = make_basic_repo().unwrap();
+        let mut buf = vec![0u8; 1048576];
         let mut rng = Pcg32::seed_from_u64(0);
-        for _ in 0..(4096 / 64) {
-            rng.fill_bytes(&mut buf);
-            huge_file.write_all(&buf).unwrap();
-        }
-        huge_file.flush().unwrap();
 
-        let metadata = huge_file.metadata().unwrap();
-        assert_eq!(metadata.len(), 4096 * 1048576);
+        let mut huge_file_1 = make_file(&repo, "a-huge-file").unwrap();
+        for _ in 0..2048 {
+            rng.fill_bytes(&mut buf);
+            huge_file_1.write_all(&buf).unwrap();
+        }
+        huge_file_1.flush().unwrap();
+        let mut huge_file_2 = make_file(&repo, "another-huge-file").unwrap();
+        for _ in 0..2048 {
+            rng.fill_bytes(&mut buf);
+            huge_file_2.write_all(&buf).unwrap();
+        }
+        huge_file_2.flush().unwrap();
+
+        let metadata_1 = huge_file_1.metadata().unwrap();
+        assert_eq!(metadata_1.len(), 2048 * 1048576);
+        let metadata_2 = huge_file_1.metadata().unwrap();
+        assert_eq!(metadata_2.len(), 2048 * 1048576);
         repo.run_git(["add", "a-huge-file"]).unwrap();
+        repo.run_git(["add", "another-huge-file"]).unwrap();
 
         repo.commit(
             "another commit",
@@ -209,12 +219,12 @@ mod tests {
             .unwrap()
             .trim_ascii_end()
             .to_vec();
-        assert_eq!(head_id, b"2b9789abe6006287ee2e70570b23ea421084de08");
+        assert_eq!(head_id, b"7e352726d6addfb0da5e3990393975188c5625ab");
         repo.run_git(["gc"]).unwrap();
         let mut idx_file = repo
-            .pack_idx_file(b"5f4c101929db231a8ae42b13a04abc8aad107a7d")
+            .pack_idx_file(b"dfc8aedfbd7fe0f195509ca7bf9e51d3efe283bb")
             .unwrap();
-        let pack_offset = block_on(get_obj_packfile_offset(&mut idx_file, 5, 6)).unwrap();
-        assert_eq!(pack_offset, 0x0100140150);
+        let pack_offset = block_on(get_obj_packfile_offset(&mut idx_file, 6, 8)).unwrap();
+        assert_eq!(pack_offset, 0x800a0249);
     }
 }
