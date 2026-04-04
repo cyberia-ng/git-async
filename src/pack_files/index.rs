@@ -56,15 +56,12 @@ async fn find_object<D: Directory>(
 }
 
 async fn find_object_idx<F: File>(file: &mut F, id: ObjectId) -> GResult<Option<(u32, u32)>> {
-    let mut buf = [0u8; 4];
+    let mut buf = [0u8; 8];
     file.read_segment(0x0, &mut buf).await?;
-    if buf != [0xff, b't', b'O', b'c'] {
+    if buf != [0xff, b't', b'O', b'c', 0, 0, 0, 2] {
         return Err(Error::UnsupportedIndexVersion);
     }
-    file.read_segment(0x4, &mut buf).await?;
-    if buf != [0, 0, 0, 2] {
-        return Err(Error::UnsupportedIndexVersion);
-    }
+    let mut buf = [0u8; 4];
     let fanout_offset: u64 = 0x08;
 
     file.read_segment(fanout_offset + 4 * 0xff, &mut buf)
