@@ -98,17 +98,16 @@ impl Ref {
 mod test {
     use crate::{
         object::{Object, ObjectId},
-        reference::{Ref, RefName},
-        test::repo::{TestRepo, make_basic_commit},
+        test::helpers::make_basic_repo,
     };
     use futures::executor::block_on;
     use hex_literal::hex;
 
+    use super::*;
+
     #[test]
     fn resolve_head() {
-        let test_repo = TestRepo::new().unwrap();
-        make_basic_commit(&test_repo);
-
+        let test_repo = make_basic_repo().unwrap();
         let repo = test_repo.repo();
         let head = block_on(repo.head()).unwrap();
         let head_target = match head {
@@ -126,9 +125,7 @@ mod test {
 
     #[test]
     fn resolve_head_to_commit() {
-        let test_repo = TestRepo::new().unwrap();
-        make_basic_commit(&test_repo);
-
+        let test_repo = make_basic_repo().unwrap();
         let repo = test_repo.repo();
         let head = block_on(repo.head()).unwrap();
         let object = block_on(head.resolve_to_object(&repo)).unwrap();

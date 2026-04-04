@@ -312,17 +312,16 @@ impl Tree {
 
 #[cfg(test)]
 mod test {
-    use core::iter::zip;
-
     use super::*;
-    use crate::test::repo::{TestRepo, make_basic_commit};
+
+    use crate::test::helpers::make_basic_repo;
+    use core::iter::zip;
     use futures::executor::block_on;
     use hex_literal::hex;
 
     #[test]
     fn lookup_commit() {
-        let test_repo = TestRepo::new().unwrap();
-        make_basic_commit(&test_repo);
+        let test_repo = make_basic_repo().unwrap();
         let commit_id = test_repo.run_git(["rev-parse", "HEAD"]).unwrap();
         let commit_id = ObjectId::from_encoded(commit_id.trim_ascii()).unwrap();
 

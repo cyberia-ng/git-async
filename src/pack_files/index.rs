@@ -1,4 +1,4 @@
-use core::cmp::Ordering;
+use super::PackObjectLocation;
 use crate::{
     directory::{DirEntry, Directory, File},
     error::{Error, GResult},
@@ -6,7 +6,7 @@ use crate::{
     repo::Repo,
 };
 use alloc::vec::Vec;
-use super::PackObjectLocation;
+use core::cmp::Ordering;
 
 async fn find_object<D: Directory>(
     repo: &Repo<D>,
@@ -136,69 +136,21 @@ async fn get_obj_packfile_offset<F: File>(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::{
-        directory::Directory,
-        test::repo::{TestRepo, TestRepoFile},
-    };
+    use crate::test::helpers::{make_file, make_packfile_repo};
     use futures::executor::block_on;
     use hex_literal::hex;
     use rand_core::{Rng, SeedableRng};
     use rand_pcg::Pcg32;
-    use std::{
-        fs::OpenOptions,
-        io::Write,
-        process::{Command, Stdio},
-    };
+    use std::io::Write;
 
-    fn make_deterministic_packfile_repo() -> (TestRepo, TestRepoFile, TestRepoFile) {
-        // This test helper is sensitive to git's packfile algorithm.
-        // Expected data was generated with git 2.52.0.
-        let repo = TestRepo::new().unwrap();
-        repo.set_user("a user", "an-email-address").unwrap();
-        let mut f = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(repo.location.path().join("a-file"))
-            .unwrap();
-        f.flush().unwrap();
-        repo.run_git(["add", "a-file"]).unwrap();
-        let mut p = Command::new("git")
-            .current_dir(repo.location.path())
-            .env("GIT_AUTHOR_DATE", "2000-01-01T00:00:00Z")
-            .env("GIT_COMMITTER_DATE", "2000-01-01T00:00:00Z")
-            .args(["commit", "-m", "a commit"])
-            .stdout(Stdio::null())
-            .spawn()
-            .unwrap();
-        let status = p.wait().unwrap();
-        assert!(status.success());
-        let head_id = repo
-            .run_git(["rev-parse", "HEAD"])
-            .unwrap()
-            .trim_ascii_end()
-            .to_vec();
-        assert_eq!(head_id, b"78dc5b70bd81aa46ec7dfce87a69826e354a916b");
-        repo.run_git(["gc"]).unwrap();
-        let pack_dir = block_on(
-            block_on(repo.repo().git_dir.open_subdir(b"objects"))
-                .unwrap()
-                .open_subdir(b"pack"),
-        )
-        .unwrap();
-        let idx_file =
-            block_on(pack_dir.open_file(b"pack-2692754bdea34cf95fac0765d24ef49e53188be3.idx"))
-                .unwrap();
-        let pack_file =
-            block_on(pack_dir.open_file(b"pack-2692754bdea34cf95fac0765d24ef49e53188be3.pack"))
-                .unwrap();
-        (repo, idx_file, pack_file)
-    }
+    use super::*;
 
     #[test]
     fn test_find_object_idx() {
-        let (_repo, mut idx_file, _pack_file) = make_deterministic_packfile_repo();
+        let repo = make_packfile_repo().unwrap();
+        let mut idx_file = repo
+            .pack_idx_file(b"2692754bdea34cf95fac0765d24ef49e53188be3")
+            .unwrap();
         let obj_idx = block_on(find_object_idx(
             &mut idx_file,
             ObjectId(hex!("78dc5b70bd81aa46ec7dfce87a69826e354a916b")),
@@ -221,7 +173,10 @@ mod tests {
 
     #[test]
     fn test_get_obj_packfile_offset_normal() {
-        let (_repo, mut idx_file, _pack_file) = make_deterministic_packfile_repo();
+        let repo = make_packfile_repo().unwrap();
+        let mut idx_file = repo
+            .pack_idx_file(b"2692754bdea34cf95fac0765d24ef49e53188be3")
+            .unwrap();
         let pack_offset = block_on(get_obj_packfile_offset(&mut idx_file, 1, 3)).unwrap();
         assert_eq!(pack_offset, 0x0c);
     }
@@ -231,13 +186,8 @@ mod tests {
     fn test_get_obj_packfile_offset_huge() {
         // This test takes a long time and requires many GiB of disk space. Run it by passing
         // --ignored to cargo test
-        let (repo, _, _) = make_deterministic_packfile_repo();
-        let mut huge_file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(repo.location.path().join("a-huge-file"))
-            .unwrap();
+        let repo = make_packfile_repo().unwrap();
+        let mut huge_file = make_file(&repo, "a-huge-file").unwrap();
         let mut buf = vec![0u8; 64 * 1048576];
         let mut rng = Pcg32::seed_from_u64(0);
         for _ in 0..(4096 / 64) {
@@ -250,16 +200,14 @@ mod tests {
         assert_eq!(metadata.len(), 4096 * 1048576);
         repo.run_git(["add", "a-huge-file"]).unwrap();
 
-        let mut p = Command::new("git")
-            .current_dir(repo.location.path())
-            .env("GIT_AUTHOR_DATE", "2000-01-01T00:00:00Z")
-            .env("GIT_COMMITTER_DATE", "2000-01-01T00:00:00Z")
-            .args(["commit", "-m", "another commit"])
-            .stdout(Stdio::null())
-            .spawn()
-            .unwrap();
-        let status = p.wait().unwrap();
-        assert!(status.success());
+        repo.commit(
+            "another commit",
+            "a user",
+            "an-email-address",
+            "2000-01-01T00:00:00Z",
+            "2000-01-01T00:00:00Z",
+        )
+        .unwrap();
         let head_id = repo
             .run_git(["rev-parse", "HEAD"])
             .unwrap()
@@ -267,15 +215,9 @@ mod tests {
             .to_vec();
         assert_eq!(head_id, b"2b9789abe6006287ee2e70570b23ea421084de08");
         repo.run_git(["gc"]).unwrap();
-        let pack_dir = block_on(
-            block_on(repo.repo().git_dir.open_subdir(b"objects"))
-                .unwrap()
-                .open_subdir(b"pack"),
-        )
-        .unwrap();
-        let mut idx_file =
-            block_on(pack_dir.open_file(b"pack-5f4c101929db231a8ae42b13a04abc8aad107a7d.idx"))
-                .unwrap();
+        let mut idx_file = repo
+            .pack_idx_file(b"5f4c101929db231a8ae42b13a04abc8aad107a7d")
+            .unwrap();
         let pack_offset = block_on(get_obj_packfile_offset(&mut idx_file, 5, 6)).unwrap();
         assert_eq!(pack_offset, 0x0100140150);
     }

@@ -10,5 +10,6 @@ pub mod repo;
 
 #[cfg(test)]
 mod test {
-    pub mod repo;
+    pub(crate) mod helpers;
+    pub(crate) mod repo;
 }

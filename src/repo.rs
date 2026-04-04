@@ -58,7 +58,7 @@ impl<D: Directory> Repo<D> {
 mod tests {
     use crate::{
         reference::{Ref, RefName},
-        test::repo::{TestRepo, make_basic_commit},
+        test::{helpers::make_basic_repo, repo::TestRepo},
     };
     use futures::executor::block_on;
 
@@ -72,8 +72,7 @@ mod tests {
 
     #[test]
     fn read_refs() {
-        let test_repo = TestRepo::new().unwrap();
-        make_basic_commit(&test_repo);
+        let test_repo = make_basic_repo().unwrap();
         test_repo.run_git(["branch", "a-branch"]).unwrap();
         test_repo.run_git(["branch", "foo/a-branch"]).unwrap();
         test_repo.run_git(["tag", "thin-tag"]).unwrap();

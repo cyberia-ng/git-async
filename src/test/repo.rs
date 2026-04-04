@@ -6,7 +6,8 @@ use std::{
     ffi::OsStr,
     fs::{self, OpenOptions, read_dir},
     io::{self, Read, Seek, Write},
-    path::{Path, PathBuf},
+    os::unix::ffi::OsStrExt,
+    path::PathBuf,
     process::{Command, Stdio},
     rc::Rc,
 };
@@ -62,7 +63,7 @@ impl TestRepo {
         Ok(repo)
     }
 
-    pub fn set_user(&self, name: &str, email: &str) -> io::Result<()> {
+    fn set_user(&self, name: &str, email: &str) -> io::Result<()> {
         self.run_git(["config", "user.name", name])?;
         self.run_git(["config", "user.email", email])?;
         Ok(())
@@ -75,12 +76,67 @@ impl TestRepo {
         }
     }
 
-    pub fn working_tree_path(&self) -> &Path {
-        self.location.path()
-    }
-
     pub fn repo(&self) -> Repo<TestRepoDirectory> {
         Repo::new(self.git_dir())
+    }
+
+    pub fn commit(
+        &self,
+        message: &str,
+        author_name: &str,
+        author_email: &str,
+        author_date: &str,
+        committer_date: &str,
+    ) -> io::Result<()> {
+        self.set_user(author_name, author_email)?;
+        let mut p = Command::new("git")
+            .current_dir(self.location.path())
+            .env("GIT_AUTHOR_DATE", author_date)
+            .env("GIT_COMMITTER_DATE", committer_date)
+            .args(["commit", "-m", message])
+            .stdout(Stdio::null())
+            .spawn()
+            .unwrap();
+        let status = p.wait().unwrap();
+        assert!(status.success());
+        Ok(())
+    }
+
+    fn pack_dir_path(&self) -> PathBuf {
+        self.location
+            .path()
+            .join(".git")
+            .join("objects")
+            .join("pack")
+            .to_path_buf()
+    }
+
+    pub fn pack_idx_file(&self, pack_id: &[u8]) -> io::Result<TestRepoFile> {
+        let mut idx_name = Vec::new();
+        idx_name.extend_from_slice(b"pack-");
+        idx_name.extend_from_slice(pack_id);
+        idx_name.extend_from_slice(b".idx");
+        let file = OpenOptions::new()
+            .read(true)
+            .open(self.pack_dir_path().join(OsStr::from_bytes(&idx_name)))?;
+        Ok(TestRepoFile {
+            file,
+            _temp_dir: self.location.clone(),
+        })
+    }
+
+    pub fn pack_file(&self, pack_id: &[u8]) -> io::Result<TestRepoFile> {
+        let mut pack_name = Vec::new();
+        pack_name.extend_from_slice(b"pack-");
+        pack_name.extend_from_slice(pack_id);
+        pack_name.extend_from_slice(b".pack");
+        let file = OpenOptions::new()
+            .read(true)
+            .open(self.pack_dir_path().join(OsStr::from_bytes(&pack_name)))?;
+        Ok(TestRepoFile {
+            file,
+            _temp_dir: self.location.clone(),
+        })
     }
 }
 
@@ -147,22 +203,6 @@ impl File for TestRepoFile {
         self.file.read_exact(dest).unwrap();
         Ok(())
     }
-}
-
-pub fn make_basic_commit(test_repo: &TestRepo) {
-    let wd_path = test_repo.working_tree_path();
-    let mut file_path = wd_path.to_path_buf();
-    file_path.push("a-file");
-    let mut f = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&file_path)
-        .unwrap();
-    f.flush().unwrap();
-    test_repo.run_git(["add", "--all"]).unwrap();
-    test_repo
-        .run_git(["commit", "-m", "a commit message"])
-        .unwrap();
 }
 
 #[cfg(test)]
