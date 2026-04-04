@@ -1,5 +1,4 @@
 use core::cmp::Ordering;
-
 use crate::{
     directory::{DirEntry, Directory, File},
     error::{Error, GResult},
@@ -7,11 +6,7 @@ use crate::{
     repo::Repo,
 };
 use alloc::vec::Vec;
-
-struct PackObjectLocation {
-    pack_file_name: Vec<u8>,
-    offset: u64,
-}
+use super::PackObjectLocation;
 
 async fn find_object<D: Directory>(
     repo: &Repo<D>,
