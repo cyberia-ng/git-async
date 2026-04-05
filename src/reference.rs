@@ -52,13 +52,13 @@ impl RefName {
             .ok_or_else(|| Error::RefNotFound(self.clone()))?;
         for component in components {
             dir = match dir.open_subdir(component).await {
-                Err(DirectoryError::NotFound) => return Ok(None),
+                Err(DirectoryError::NotFound(_)) => return Ok(None),
                 Err(e) => return Err(e.into()),
                 Ok(dir) => dir,
             };
         }
         match dir.open_file(file_name).await {
-            Err(DirectoryError::NotFound) => Ok(None),
+            Err(DirectoryError::NotFound(_)) => Ok(None),
             Err(e) => Err(e.into()),
             Ok(file) => Ok(Some(file)),
         }

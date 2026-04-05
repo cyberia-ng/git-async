@@ -206,7 +206,7 @@ impl Directory for TestRepoDirectory {
             Ok(f) => f,
             Err(e) => {
                 if e.kind() == io::ErrorKind::NotFound {
-                    return Err(DirectoryError::NotFound);
+                    return Err(DirectoryError::NotFound(Box::new(e)));
                 } else {
                     return Err(DirectoryError::Other(Box::new(e)));
                 }

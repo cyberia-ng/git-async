@@ -29,7 +29,7 @@ pub(crate) async fn read_loose_object<D: Directory>(
     dir = dir.open_subdir(&prefix_buf).await?;
     let mut file = match dir.open_file(&suffix_buf).await {
         Ok(f) => f,
-        Err(DirectoryError::NotFound) => return Ok(None),
+        Err(DirectoryError::NotFound(_)) => return Ok(None),
         Err(e) => return Err(e.into()),
     };
     let data = file.read_all().await?;

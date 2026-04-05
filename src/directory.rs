@@ -8,7 +8,7 @@ pub enum DirEntry {
 
 #[derive(Debug)]
 pub enum DirectoryError {
-    NotFound,
+    NotFound(Box<dyn Any>),
     Other(Box<dyn Any>),
 }
 
