@@ -223,7 +223,11 @@ fn reconstruct_deltified_object(deltified: &[u8], base: &[u8]) -> Vec<u8> {
     let mut reconstructed_body: Vec<u8> = Vec::new();
     let (bytes_read, base_object_size) = read_delta_expected_size(&deltified[pos..]);
     pos += bytes_read;
-    debug_assert_eq!(base_object_size, base.len().try_into().unwrap());
+    debug_assert_eq!(
+        base_object_size,
+        base.len().try_into().unwrap(),
+        "base size"
+    );
     let (bytes_read, reconstructed_body_size) = read_delta_expected_size(&deltified[pos..]);
     pos += bytes_read;
     while pos < deltified.len() {
@@ -262,7 +266,8 @@ fn reconstruct_deltified_object(deltified: &[u8], base: &[u8]) -> Vec<u8> {
     }
     debug_assert_eq!(
         reconstructed_body.len(),
-        reconstructed_body_size.try_into().unwrap()
+        reconstructed_body_size.try_into().unwrap(),
+        "reconstructed size"
     );
     reconstructed_body
 }
@@ -273,17 +278,23 @@ pub(crate) fn reconstruct_deltified_object_from_chain(
 ) -> PackObject {
     // TODO: when we implement ref deltas, this should take another parameter of the real base object
 
-    debug_assert!(chain.iter().all(|item| {
-        matches!(
-            item.object_type,
-            PackObjectType::OffsetDelta { base_offset_neg: _ }
-        )
-    }));
-    debug_assert!(match final_object.object_type {
-        PackObjectType::OffsetDelta { base_offset_neg: _ } => false,
-        PackObjectType::RefDelta => todo!(),
-        _ => true,
-    });
+    debug_assert!(
+        chain.iter().all(|item| {
+            matches!(
+                item.object_type,
+                PackObjectType::OffsetDelta { base_offset_neg: _ }
+            )
+        }),
+        "chain contains offsets"
+    );
+    debug_assert!(
+        match final_object.object_type {
+            PackObjectType::OffsetDelta { base_offset_neg: _ } => false,
+            PackObjectType::RefDelta => todo!(),
+            _ => true,
+        },
+        "final object is base"
+    );
     let chain_iter = chain.iter().rev();
     let mut reconstructed_body = final_object.body.clone();
     for pack_object in chain_iter {
