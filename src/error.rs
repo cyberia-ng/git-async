@@ -20,6 +20,8 @@ pub enum Error {
 
     UnsupportedIndexVersion,
     UnsupportedPackVersion,
+
+    MalformedPackObject,
 }
 
 impl From<DirectoryError> for Error {

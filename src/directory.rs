@@ -7,7 +7,10 @@ pub enum DirEntry {
 }
 
 #[derive(Debug)]
-pub struct DirectoryError(pub Box<dyn Any>);
+pub enum DirectoryError {
+    NotFound,
+    Other(Box<dyn Any>),
+}
 
 pub trait Directory: Sized + Clone {
     type File: File;

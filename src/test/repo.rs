@@ -196,15 +196,22 @@ impl Directory for TestRepoDirectory {
     }
 
     async fn open_file(&self, name: &[u8]) -> Result<Self::File, DirectoryError> {
-        let file = OpenOptions::new()
-            .read(true)
-            .open(
-                self.root
-                    .path()
-                    .join(&self.sub_path)
-                    .join(str::from_utf8(name).unwrap()),
-            )
-            .unwrap();
+        let file = OpenOptions::new().read(true).open(
+            self.root
+                .path()
+                .join(&self.sub_path)
+                .join(str::from_utf8(name).unwrap()),
+        );
+        let file = match file {
+            Ok(f) => f,
+            Err(e) => {
+                if e.kind() == io::ErrorKind::NotFound {
+                    return Err(DirectoryError::NotFound);
+                } else {
+                    return Err(DirectoryError::Other(Box::new(e)));
+                }
+            }
+        };
         Ok(TestRepoFile {
             file,
             _temp_dir: self.root.clone(),

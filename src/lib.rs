@@ -4,7 +4,7 @@ extern crate alloc;
 pub mod directory;
 pub mod error;
 pub mod object;
-mod pack_files;
+mod object_store;
 pub mod reference;
 pub mod repo;
 

@@ -345,6 +345,7 @@ mod test {
 
     #[test]
     fn lookup_commit() {
+        // TODO remove(?) as duplicated by test in object_store::lookup
         let test_repo = make_basic_repo().unwrap();
         let commit_id = test_repo.run_git(["rev-parse", "HEAD"]).unwrap();
         let commit_id = ObjectId::from_encoded(commit_id.trim_ascii()).unwrap();
