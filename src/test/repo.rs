@@ -5,7 +5,7 @@ use crate::{
 use core::cmp::min;
 use std::{
     ffi::OsStr,
-    fs::{self, OpenOptions, read_dir},
+    fs::{self, OpenOptions, metadata, read_dir},
     io::{self, Read, Seek, Write},
     os::unix::ffi::OsStrExt,
     path::PathBuf,
@@ -167,6 +167,11 @@ impl Directory for TestRepoDirectory {
 
     async fn open_subdir(&self, name: &[u8]) -> Result<Self, DirectoryError> {
         let new_sub_path = self.sub_path.join(str::from_utf8(name).unwrap());
+        if let Err(e) = metadata(self.root.path().join(&new_sub_path))
+            && e.kind() == io::ErrorKind::NotFound
+        {
+            return Err(DirectoryError::NotFound(Box::new(e)));
+        }
         Ok(Self {
             root: self.root.clone(),
             sub_path: new_sub_path,

@@ -26,7 +26,11 @@ pub(crate) async fn read_loose_object<D: Directory>(
     let mut suffix_buf = [0u8; 2 * 19];
     hex::encode_to_slice(suffix, &mut suffix_buf)?;
     let mut dir = repo.git_dir.open_subdir(b"objects").await?;
-    dir = dir.open_subdir(&prefix_buf).await?;
+    dir = match dir.open_subdir(&prefix_buf).await {
+        Ok(d) => d,
+        Err(DirectoryError::NotFound(_)) => return Ok(None),
+        Err(e) => return Err(e.into()),
+    };
     let mut file = match dir.open_file(&suffix_buf).await {
         Ok(f) => f,
         Err(DirectoryError::NotFound(_)) => return Ok(None),
