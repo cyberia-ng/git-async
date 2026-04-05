@@ -7,12 +7,12 @@ use crate::{
 use alloc::vec::Vec;
 use core::cmp::Ordering;
 
-struct PackObjectLocation {
-    pack_file_name: Vec<u8>,
-    offset: u64,
+pub(crate) struct PackObjectLocation {
+    pub pack_file_name: Vec<u8>,
+    pub offset: u64,
 }
 
-async fn find_object<D: Directory>(
+pub(crate) async fn find_object<D: Directory>(
     repo: &Repo<D>,
     id: ObjectId,
 ) -> GResult<Option<PackObjectLocation>> {

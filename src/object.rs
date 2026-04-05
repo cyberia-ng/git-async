@@ -1,16 +1,16 @@
 use crate::{
-    directory::{Directory, File},
+    directory::Directory,
     error::{Error, GResult},
+    object_store::{RawObject, RawObjectType, lookup::lookup},
     repo::Repo,
 };
 use alloc::vec::Vec;
 use chrono::{DateTime, FixedOffset};
-use miniz_oxide::inflate::decompress_to_vec_zlib;
 use nom::{
     Parser,
     branch::alt,
     bytes::complete::{tag, take, take_till, take_until},
-    character::complete::{char, hex_digit0, i32, i64, newline, usize},
+    character::complete::{char, hex_digit0, i32, i64, newline},
     combinator::all_consuming,
     multi::many,
     sequence::{delimited, terminated},
@@ -53,18 +53,16 @@ pub enum Object {
 
 impl Object {
     pub async fn lookup<D: Directory>(repo: &Repo<D>, id: ObjectId) -> GResult<Self> {
-        let (prefix, suffix) = id.0.split_at(1);
-        let mut prefix_buf = [0u8; 2];
-        hex::encode_to_slice(prefix, &mut prefix_buf)?;
-        let mut suffix_buf = [0u8; 2 * 19];
-        hex::encode_to_slice(suffix, &mut suffix_buf)?;
-        let mut dir = repo.git_dir.open_subdir(b"objects").await?;
-        dir = dir.open_subdir(&prefix_buf).await?;
-        let data = dir.open_file(&suffix_buf).await?.read_all().await?;
-        let data = decompress_to_vec_zlib(&data)?;
+        let RawObject {
+            object_type,
+            body,
+            id,
+        } = lookup(repo, id)
+            .await?
+            .ok_or_else(|| Error::MissingObject(id))?;
 
-        let (_, out) = Object::parser(id)
-            .parse(data.as_ref())
+        let (_, out) = Object::parser(id, object_type)
+            .parse(body.as_ref())
             .map_err(|_| Error::MalformedObject(id))?;
         Ok(out)
     }
@@ -79,40 +77,28 @@ impl Object {
         }
     }
 
-    fn parser<'a>(id: ObjectId) -> impl Fn(&'a [u8]) -> nom::IResult<&'a [u8], Object> {
-        fn parse_header_body(input: &[u8]) -> nom::IResult<&[u8], (&[u8], &[u8])> {
-            let (rest, (object_type, expected_len)) = (
-                terminated(
-                    alt((tag("commit"), tag("tag"), tag("tree"), tag("blob"))),
-                    char(' '),
-                ),
-                terminated(usize, char('\0')),
-            )
-                .parse(input)?;
-            let (rest, body) = take(expected_len).parse(rest)?;
-            Ok((rest, (object_type, body)))
-        }
-
-        move |input: &[u8]| {
-            let (_, (object_type, body)) = all_consuming(parse_header_body).parse(input)?;
+    fn parser<'a>(
+        id: ObjectId,
+        object_type: RawObjectType,
+    ) -> impl Fn(&'a [u8]) -> nom::IResult<&'a [u8], Object> {
+        move |body: &[u8]| {
             let (_, out) = match object_type {
-                b"commit" => all_consuming(Commit::parser(id))
+                RawObjectType::Commit => all_consuming(Commit::parser(id))
                     .map(Object::Commit)
                     .parse(body)?,
-                b"tag" => all_consuming(Tag::parser(id))
+                RawObjectType::Tag => all_consuming(Tag::parser(id))
                     .map(Object::Tag)
                     .parse(body)?,
-                b"tree" => all_consuming(Tree::parser(id))
+                RawObjectType::Tree => all_consuming(Tree::parser(id))
                     .map(Object::Tree)
                     .parse(body)?,
-                b"blob" => (
+                RawObjectType::Blob => (
                     &[][..],
                     Object::Blob(Blob {
                         id,
                         data: body.to_vec(),
                     }),
                 ),
-                _ => unreachable!(),
             };
             Ok((&[][..], out))
         }
@@ -363,26 +349,16 @@ mod test {
     }
 
     #[test]
-    fn test_parse_object_invalid_length() {
-        let data = b"commit 169\0tree 3a4df67dd7fd7cb3ca82d9896dbdd28053d39bdb
-author a-user <an-email-address> 1774735018 +0530
-committer another-user <another-email-address> 1774735019 -0800
-
-a commit
-";
-        let result = Object::parser(ObjectId([0u8; 20])).parse(data);
-        assert!(result.is_err());
-    }
-
-    #[test]
     fn test_parse_root_commit() {
-        let data = b"commit 170\0tree 3a4df67dd7fd7cb3ca82d9896dbdd28053d39bdb
+        let data = b"tree 3a4df67dd7fd7cb3ca82d9896dbdd28053d39bdb
 author a-user <an-email-address> 1774735018 +0530
 committer another-user <another-email-address> 1774735019 -0800
 
 a commit
 ";
-        let (rest, object) = Object::parser(ObjectId([0u8; 20])).parse(data).unwrap();
+        let (rest, object) = Object::parser(ObjectId([0u8; 20]), RawObjectType::Commit)
+            .parse(data)
+            .unwrap();
         assert_eq!(rest, &[]);
         let commit = match object {
             Object::Commit(commit) => commit,
@@ -419,14 +395,16 @@ a commit
 
     #[test]
     fn test_parse_normal_commit() {
-        let data = b"commit 213\0tree 4b825dc642cb6eb9a060e54bf8d69288fbee4904
+        let data = b"tree 4b825dc642cb6eb9a060e54bf8d69288fbee4904
 parent 16dafd3d0ba5af72f035d641c076a4150eda548d
 author a-user <an-email-address> 1774739676 +0000
 committer a-user <an-email-address> 1774739676 +0000
 
 another commit
 ";
-        let (_, object) = Object::parser(ObjectId([0u8; 20])).parse(data).unwrap();
+        let (_, object) = Object::parser(ObjectId([0u8; 20]), RawObjectType::Commit)
+            .parse(data)
+            .unwrap();
         let commit = match object {
             Object::Commit(commit) => commit,
             _ => panic!(),
@@ -439,7 +417,7 @@ another commit
 
     #[test]
     fn test_parse_merge_commit() {
-        let data = b"commit 268\0tree bfb6d701e108f3be27395bd60c3417b47ffbe7d9
+        let data = b"tree bfb6d701e108f3be27395bd60c3417b47ffbe7d9
 parent f625376d12f2edc71cff70bb42d387ddf2408460
 parent 6904799d30a34bfcf6ca6a3526fc8b771ed6705c
 author a-user <an-email-address> 1774740069 +0000
@@ -447,7 +425,9 @@ committer a-user <an-email-address> 1774740069 +0000
 
 Merge branch 'branch'
 ";
-        let (_, object) = Object::parser(ObjectId([0u8; 20])).parse(data).unwrap();
+        let (_, object) = Object::parser(ObjectId([0u8; 20]), RawObjectType::Commit)
+            .parse(data)
+            .unwrap();
         let commit = match object {
             Object::Commit(commit) => commit,
             _ => panic!(),
@@ -463,14 +443,16 @@ Merge branch 'branch'
 
     #[test]
     fn parse_commit_tag() {
-        let data = b"tag 139\0object eedeffb6da16ddc3fb61b2255a8259cacc045691
+        let data = b"object eedeffb6da16ddc3fb61b2255a8259cacc045691
 type commit
 tag annotated-tag
 tagger a-user <an-email-address> 1774822895 +0100
 
 a message
 ";
-        let (_, object) = Object::parser(ObjectId([0u8; 20])).parse(data).unwrap();
+        let (_, object) = Object::parser(ObjectId([0u8; 20]), RawObjectType::Tag)
+            .parse(data)
+            .unwrap();
         let tag = match object {
             Object::Tag(tag) => tag,
             _ => panic!(),
@@ -492,14 +474,16 @@ a message
 
     #[test]
     fn parse_blob_tag() {
-        let data = b"tag 129\0object e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+        let data = b"object e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
 type blob
 tag blob-tag
 tagger a-user <an-email-address> 1774826002 +0100
 
 a blob
 ";
-        let (_, object) = Object::parser(ObjectId([0u8; 20])).parse(data).unwrap();
+        let (_, object) = Object::parser(ObjectId([0u8; 20]), RawObjectType::Tag)
+            .parse(data)
+            .unwrap();
         let tag = match object {
             Object::Tag(tag) => tag,
             _ => panic!(),
@@ -509,14 +493,16 @@ a blob
 
     #[test]
     fn parse_tree_tag() {
-        let data = b"tag 129\0object 3a4df67dd7fd7cb3ca82d9896dbdd28053d39bdb
+        let data = b"object 3a4df67dd7fd7cb3ca82d9896dbdd28053d39bdb
 type tree
 tag tree-tag
 tagger a-user <an-email-address> 1774826187 +0100
 
 a tree
 ";
-        let (_, object) = Object::parser(ObjectId([0u8; 20])).parse(data).unwrap();
+        let (_, object) = Object::parser(ObjectId([0u8; 20]), RawObjectType::Tag)
+            .parse(data)
+            .unwrap();
         let tag = match object {
             Object::Tag(tag) => tag,
             _ => panic!(),
@@ -526,14 +512,16 @@ a tree
 
     #[test]
     fn parse_nested_tag() {
-        let data = b"tag 126\0object 1c8bf8368bc9b1fd14227c6c1a0b0f30a1812e70
+        let data = b"object 1c8bf8368bc9b1fd14227c6c1a0b0f30a1812e70
 type tag
 tag tag-tag
 tagger a-user <an-email-address> 1774826312 +0100
 
 a tag
 ";
-        let (_, object) = Object::parser(ObjectId([0u8; 20])).parse(data).unwrap();
+        let (_, object) = Object::parser(ObjectId([0u8; 20]), RawObjectType::Tag)
+            .parse(data)
+            .unwrap();
         let tag = match object {
             Object::Tag(tag) => tag,
             _ => panic!(),
@@ -544,7 +532,6 @@ a tag
     #[test]
     fn parse_tree() {
         let mut data = Vec::new();
-        data.extend_from_slice(b"tree 155\0");
         data.extend_from_slice(b"40000 a-directory\0");
         data.extend_from_slice(&hex!("3a4df67dd7fd7cb3ca82d9896dbdd28053d39bdb"));
         data.extend_from_slice(b"100644 a-file\0");
@@ -553,7 +540,9 @@ a tag
         data.extend_from_slice(&hex!("7c35e066a9001b24677ae572214d292cebc55979"));
         data.extend_from_slice(b"100755 an-executable-file\0");
         data.extend_from_slice(&hex!("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"));
-        let (_, object) = Object::parser(ObjectId([0u8; 20])).parse(&data).unwrap();
+        let (_, object) = Object::parser(ObjectId([0u8; 20]), RawObjectType::Tree)
+            .parse(&data)
+            .unwrap();
         let tree = match object {
             Object::Tree(tree) => tree,
             _ => panic!(),
@@ -587,8 +576,10 @@ a tag
 
     #[test]
     fn parse_empty_blob() {
-        let input = b"blob 0\0";
-        let (_, object) = Object::parser(ObjectId([0; 20])).parse(input).unwrap();
+        let input = b"";
+        let (_, object) = Object::parser(ObjectId([0; 20]), RawObjectType::Blob)
+            .parse(input)
+            .unwrap();
         let object = match object {
             Object::Blob(blob) => blob,
             _ => panic!(),
@@ -598,8 +589,10 @@ a tag
 
     #[test]
     fn parse_contentful_blob() {
-        let input = b"blob 11\0hello world";
-        let (_, object) = Object::parser(ObjectId([0; 20])).parse(input).unwrap();
+        let input = b"hello world";
+        let (_, object) = Object::parser(ObjectId([0; 20]), RawObjectType::Blob)
+            .parse(input)
+            .unwrap();
         let object = match object {
             Object::Blob(blob) => blob,
             _ => panic!(),

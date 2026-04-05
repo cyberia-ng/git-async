@@ -1,6 +1,7 @@
 use crate::{
     directory::File,
     error::{Error, GResult},
+    object_store::RawObjectType,
 };
 use alloc::boxed::Box;
 use alloc::vec;
@@ -18,11 +19,8 @@ use miniz_oxide::inflate::{
 };
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-enum PackObjectType {
-    Commit,
-    Blob,
-    Tree,
-    Tag,
+pub(crate) enum PackObjectType {
+    Base(RawObjectType),
     OffsetDelta {
         base_offset_neg: u64,
     },
@@ -31,7 +29,7 @@ enum PackObjectType {
 }
 
 #[derive(Debug)]
-struct PackObject {
+pub(crate) struct PackObject {
     pub object_type: PackObjectType,
     pub body: Vec<u8>,
 }
@@ -52,10 +50,10 @@ fn read_obj_type_size(buf: &[u8]) -> GResult<(usize, PackObjectType, u64)> {
         if pos == 0 {
             let obj_type_id = 0b01110000 & *buf_byte;
             object_type = Some(match obj_type_id {
-                0b00010000 => PackObjectType::Commit,
-                0b00100000 => PackObjectType::Tree,
-                0b00110000 => PackObjectType::Blob,
-                0b01000000 => PackObjectType::Tag,
+                0b00010000 => PackObjectType::Base(RawObjectType::Commit),
+                0b00100000 => PackObjectType::Base(RawObjectType::Tree),
+                0b00110000 => PackObjectType::Base(RawObjectType::Blob),
+                0b01000000 => PackObjectType::Base(RawObjectType::Tag),
                 0b01100000 => PackObjectType::OffsetDelta { base_offset_neg: 0 },
                 0b01110000 => unimplemented!(), // TODO
                 _ => return Err(Error::MalformedPackObject),
@@ -198,7 +196,7 @@ async fn read_pack_object<F: File>(pack_file: &mut F, offset: u64) -> GResult<Pa
     Ok(PackObject { object_type, body })
 }
 
-async fn form_deltified_chain<F: File>(
+pub(crate) async fn form_deltified_chain<F: File>(
     pack_file: &mut F,
     start_offset: u64,
 ) -> GResult<(Vec<PackObject>, PackObject)> {
@@ -269,7 +267,7 @@ fn reconstruct_deltified_object(deltified: &[u8], base: &[u8]) -> Vec<u8> {
     reconstructed_body
 }
 
-fn reconstruct_deltified_object_from_chain(
+pub(crate) fn reconstruct_deltified_object_from_chain(
     chain: &[PackObject],
     final_object: &PackObject,
 ) -> PackObject {
@@ -305,7 +303,7 @@ mod tests {
     };
     use futures::executor::block_on;
     use hex_literal::hex;
-    use std::{fs::{OpenOptions, remove_file}, io::Write};
+    use std::fs::remove_file;
 
     use super::*;
 
@@ -316,7 +314,10 @@ mod tests {
             .pack_file(b"220ae2051dba7a9606c35293e9ff1493ff59869f")
             .unwrap();
         let pack_object = block_on(read_pack_object(&mut pack_file, 0x0c)).unwrap();
-        assert_eq!(pack_object.object_type, PackObjectType::Commit);
+        assert_eq!(
+            pack_object.object_type,
+            PackObjectType::Base(RawObjectType::Commit)
+        );
         let expected = b"tree 3a4df67dd7fd7cb3ca82d9896dbdd28053d39bdb
 author a user <an-email-address> 946684800 +0000
 committer a user <an-email-address> 946684800 +0000
@@ -333,7 +334,10 @@ a commit
             .pack_file(b"220ae2051dba7a9606c35293e9ff1493ff59869f")
             .unwrap();
         let pack_object = block_on(read_pack_object(&mut pack_file, 0x11e)).unwrap();
-        assert_eq!(pack_object.object_type, PackObjectType::Blob);
+        assert_eq!(
+            pack_object.object_type,
+            PackObjectType::Base(RawObjectType::Blob)
+        );
         assert_eq!(pack_object.body, b"");
     }
 
@@ -344,7 +348,10 @@ a commit
             .pack_file(b"220ae2051dba7a9606c35293e9ff1493ff59869f")
             .unwrap();
         let pack_object = block_on(read_pack_object(&mut pack_file, 0xf1)).unwrap();
-        assert_eq!(pack_object.object_type, PackObjectType::Tree);
+        assert_eq!(
+            pack_object.object_type,
+            PackObjectType::Base(RawObjectType::Tree)
+        );
         let mut expected = Vec::new();
         expected.extend_from_slice(b"100644 a-file\0");
         expected.extend_from_slice(&hex!("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"));
@@ -358,7 +365,10 @@ a commit
             .pack_file(b"220ae2051dba7a9606c35293e9ff1493ff59869f")
             .unwrap();
         let pack_object = block_on(read_pack_object(&mut pack_file, 0x7a)).unwrap();
-        assert_eq!(pack_object.object_type, PackObjectType::Tag);
+        assert_eq!(
+            pack_object.object_type,
+            PackObjectType::Base(RawObjectType::Tag)
+        );
         assert_eq!(
             pack_object.body,
             b"object 78dc5b70bd81aa46ec7dfce87a69826e354a916b
@@ -508,7 +518,10 @@ a tag
         let (chain, final_object) = block_on(form_deltified_chain(&mut pack_file, 809)).unwrap();
         dbg!(&chain);
         let object = reconstruct_deltified_object_from_chain(&chain, &final_object);
-        assert_eq!(object.object_type, PackObjectType::Tree);
+        assert_eq!(
+            object.object_type,
+            PackObjectType::Base(RawObjectType::Tree)
+        );
         let mut expected = Vec::new();
         expected.extend_from_slice(b"100644 a\0");
         expected.extend_from_slice(&hex!("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"));

@@ -16,7 +16,7 @@ use crate::{
     repo::Repo,
 };
 
-async fn read_loose_object<D: Directory>(
+pub(crate) async fn read_loose_object<D: Directory>(
     repo: &Repo<D>,
     id: ObjectId,
 ) -> GResult<Option<RawObject>> {
@@ -34,31 +34,31 @@ async fn read_loose_object<D: Directory>(
     };
     let data = file.read_all().await?;
     let data = decompress_to_vec_zlib(&data)?;
-    fn parse_header_body(input: &[u8]) -> nom::IResult<&[u8], (RawObjectType, &[u8])> {
-        let (rest, (object_type, expected_len)) = (
-            terminated(
-                alt((
-                    tag("commit").map(|_| RawObjectType::Commit),
-                    tag("tag").map(|_| RawObjectType::Tag),
-                    tag("tree").map(|_| RawObjectType::Tree),
-                    tag("blob").map(|_| RawObjectType::Blob),
-                )),
-                char(' '),
-            ),
-            terminated(usize, char('\0')),
-        )
-            .parse(input)?;
-        let (rest, body) = take(expected_len).parse(rest)?;
-        Ok((rest, (object_type, body)))
-    }
-    let (_, (object_type, body)) = all_consuming(parse_header_body)
-        .parse(&data)
-        .map_err(|_| Error::MalformedObject(id))?;
+    let (_, (object_type, body)) =
+        parse_header_body(&data).map_err(|_| Error::MalformedObject(id))?;
     Ok(Some(RawObject {
         object_type,
         id,
         body: body.to_vec(),
     }))
+}
+
+fn parse_header_body(input: &[u8]) -> nom::IResult<&[u8], (RawObjectType, &[u8])> {
+    let (rest, (object_type, expected_len)) = (
+        terminated(
+            alt((
+                tag("commit").map(|_| RawObjectType::Commit),
+                tag("tag").map(|_| RawObjectType::Tag),
+                tag("tree").map(|_| RawObjectType::Tree),
+                tag("blob").map(|_| RawObjectType::Blob),
+            )),
+            char(' '),
+        ),
+        terminated(usize, char('\0')),
+    )
+        .parse(input)?;
+    let (_, body) = all_consuming(take(expected_len)).parse(rest)?;
+    Ok((&[][..], (object_type, body)))
 }
 
 #[cfg(test)]
@@ -102,5 +102,17 @@ a commit
         ))
         .unwrap();
         assert!(object.is_none());
+    }
+
+    #[test]
+    fn test_parse_object_invalid_length() {
+        let data = b"commit 169\0tree 3a4df67dd7fd7cb3ca82d9896dbdd28053d39bdb
+author a-user <an-email-address> 1774735018 +0530
+committer another-user <another-email-address> 1774735019 -0800
+
+a commit
+";
+        let result = parse_header_body(data.as_slice());
+        assert!(result.is_err());
     }
 }

@@ -13,15 +13,13 @@ pub enum Error {
     Directory(#[cfg_attr(feature = "serde", serde(skip))] DirectoryError),
     PathError(#[cfg_attr(feature = "serde", serde(with = "serde_bytes"))] Vec<u8>),
     DecompressError(#[cfg_attr(feature = "serde", serde(skip))] DecompressError),
-
     MalformedObject(ObjectId),
     MalformedRef(RefName),
     FromHexError(#[cfg_attr(feature = "serde", serde(skip))] hex::FromHexError),
-
     UnsupportedIndexVersion,
     UnsupportedPackVersion,
-
     MalformedPackObject,
+    MissingObject(ObjectId),
 }
 
 impl From<DirectoryError> for Error {

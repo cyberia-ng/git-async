@@ -95,6 +95,7 @@ mod tests {
             RefName::Tag(b"thin-tag".to_vec()),
             RefName::Tag(b"bar/thin-tag".to_vec()),
             RefName::Tag(b"fat-tag".to_vec()),
+            RefName::Tag(b"a-fat-tag".to_vec()),
             RefName::Remote(b"origin/main".to_vec()),
         ];
         expected.sort();
