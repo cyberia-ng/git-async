@@ -49,7 +49,7 @@ impl<D: Directory> Repo<D> {
     pub async fn head(&self) -> GResult<Ref> {
         let ref_content = self.git_dir.open_file(b"HEAD").await?.read_all().await?;
         let (_, reference) =
-            Ref::parse(&ref_content).map_err(|_| Error::MalformedRef(RefName::Head))?;
+            Ref::parse_loose_ref(&ref_content).map_err(|_| Error::MalformedRef(RefName::Head))?;
         Ok(reference)
     }
 }

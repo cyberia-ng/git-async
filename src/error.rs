@@ -20,6 +20,8 @@ pub enum Error {
     UnsupportedPackVersion,
     MalformedPackObject,
     MissingObject(ObjectId),
+    MalformedPackedRefs,
+    RefNotFound(RefName),
 }
 
 impl From<DirectoryError> for Error {

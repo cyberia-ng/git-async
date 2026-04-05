@@ -4,6 +4,7 @@ use crate::{
     object_store::{RawObject, RawObjectType, lookup::lookup},
     repo::Repo,
 };
+use alloc::format;
 use alloc::vec::Vec;
 use chrono::{DateTime, FixedOffset};
 use nom::{
@@ -19,9 +20,25 @@ use nom::{
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct ObjectId(#[cfg_attr(feature = "serde", serde(with = "serde_bytes"))] pub [u8; 20]);
+
+impl alloc::fmt::Display for ObjectId {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut chars = [0u8; 40];
+        hex::encode_to_slice(self.0, &mut chars).unwrap();
+        write!(f, "{}", str::from_utf8(&chars).unwrap())
+    }
+}
+
+impl alloc::fmt::Debug for ObjectId {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_tuple("ObjectId")
+            .field(&format!("{}", self))
+            .finish()
+    }
+}
 
 impl ObjectId {
     pub(crate) fn parse(input: &[u8]) -> nom::IResult<&[u8], Self> {
@@ -324,14 +341,13 @@ pub struct Blob {
 mod test {
     use super::*;
 
-    use crate::test::helpers::make_basic_repo;
+    use crate::test::helpers::{make_basic_repo, make_similar_commits};
     use core::iter::zip;
     use futures::executor::block_on;
     use hex_literal::hex;
 
     #[test]
     fn lookup_commit() {
-        // TODO remove(?) as duplicated by test in object_store::lookup
         let test_repo = make_basic_repo().unwrap();
         let commit_id = test_repo.run_git(["rev-parse", "HEAD"]).unwrap();
         let commit_id = ObjectId::from_encoded(commit_id.trim_ascii()).unwrap();
@@ -346,6 +362,25 @@ mod test {
             Object::Tree(_) => panic!(),
             Object::Blob(_) => panic!(),
         }
+    }
+
+    #[test]
+    fn lookup_packfile_object() {
+        let test_repo = make_basic_repo().unwrap();
+        make_similar_commits(&test_repo).unwrap();
+        test_repo.run_git(["gc"]).unwrap();
+        let repo = test_repo.repo();
+        let head = block_on(repo.head()).unwrap();
+        let commit = match block_on(head.resolve_to_object(&repo)).unwrap() {
+            Object::Commit(commit) => commit,
+            _ => panic!(),
+        };
+        let tree_id = commit.tree;
+        let tree = match block_on(Object::lookup(&repo, tree_id)).unwrap() {
+            Object::Tree(tree) => tree,
+            _ => panic!(),
+        };
+        assert_eq!(tree.entries.len(), 1 + 26 - 2);
     }
 
     #[test]

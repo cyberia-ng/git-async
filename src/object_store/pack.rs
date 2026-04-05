@@ -297,13 +297,9 @@ pub(crate) fn reconstruct_deltified_object_from_chain(
 
 #[cfg(test)]
 mod tests {
-    use crate::test::{
-        helpers::{make_basic_repo, make_file, make_packfile_repo},
-        repo::TestRepo,
-    };
+    use crate::test::helpers::{make_basic_repo, make_packfile_repo, make_similar_commits};
     use futures::executor::block_on;
     use hex_literal::hex;
-    use std::fs::remove_file;
 
     use super::*;
 
@@ -381,45 +377,10 @@ a tag
         );
     }
 
-    fn make_similar_commits(test_repo: &TestRepo) {
-        for chr in 0x61..(0x61 + 26) {
-            make_file(test_repo, str::from_utf8(&[chr]).unwrap()).unwrap();
-        }
-        test_repo.run_git(["add", "--all"]).unwrap();
-        test_repo
-            .commit(
-                "commit 2",
-                "a user",
-                "an-email-address",
-                "2000-01-01T00:00:00Z",
-            )
-            .unwrap();
-        remove_file(test_repo.location.path().join("m")).unwrap();
-        test_repo.run_git(["add", "--all"]).unwrap();
-        test_repo
-            .commit(
-                "commit 3",
-                "a user",
-                "an-email-address",
-                "2000-01-01T00:00:00Z",
-            )
-            .unwrap();
-        remove_file(test_repo.location.path().join("t")).unwrap();
-        test_repo.run_git(["add", "--all"]).unwrap();
-        test_repo
-            .commit(
-                "commit 4",
-                "a user",
-                "an-email-address",
-                "2000-01-01T00:00:00Z",
-            )
-            .unwrap();
-    }
-
     #[test]
     fn read_deltified_offset_object() {
         let test_repo = make_basic_repo().unwrap();
-        make_similar_commits(&test_repo);
+        make_similar_commits(&test_repo).unwrap();
         test_repo.run_git(["gc"]).unwrap();
         let mut pack_file = test_repo
             .pack_file(b"9a21071e8cb13ec8f89907ff140f8e8c20e978c1")
@@ -440,7 +401,7 @@ a tag
     #[test]
     fn form_deltified_object_chain() {
         let test_repo = make_basic_repo().unwrap();
-        make_similar_commits(&test_repo);
+        make_similar_commits(&test_repo).unwrap();
         test_repo.run_git(["gc"]).unwrap();
         let mut pack_file = test_repo
             .pack_file(b"9a21071e8cb13ec8f89907ff140f8e8c20e978c1")
@@ -510,13 +471,12 @@ a tag
     #[test]
     fn reconstruct_chained_deltified_object() {
         let test_repo = make_basic_repo().unwrap();
-        make_similar_commits(&test_repo);
+        make_similar_commits(&test_repo).unwrap();
         test_repo.run_git(["gc"]).unwrap();
         let mut pack_file = test_repo
             .pack_file(b"9a21071e8cb13ec8f89907ff140f8e8c20e978c1")
             .unwrap();
         let (chain, final_object) = block_on(form_deltified_chain(&mut pack_file, 809)).unwrap();
-        dbg!(&chain);
         let object = reconstruct_deltified_object_from_chain(&chain, &final_object);
         assert_eq!(
             object.object_type,
