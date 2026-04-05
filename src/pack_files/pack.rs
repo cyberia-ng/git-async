@@ -21,7 +21,7 @@ enum PackObjectType {
     Blob,
     Tree,
     Tag,
-    OffsetDelta,
+    OffsetDelta { base_offset_neg: u64 },
     RefDelta,
 }
 
@@ -39,22 +39,17 @@ async fn read_pack_object<F: File>(
         return Err(Error::UnsupportedPackVersion);
     }
 
-    const BUF_SIZE: usize = 4096;
+    const BUF_SIZE: usize = 32;
     let mut buf = vec![0u8; BUF_SIZE];
-    let mut buf_count: usize = 0;
     let mut obj_type: Option<PackObjectType> = None;
     let mut obj_size: usize = 0;
     let mut done_accumulating_size = false;
     let mut idx: usize = 0;
     while !done_accumulating_size {
         pack_file
-            .read_segment(
-                offset + u64::try_from(buf_count).unwrap() * (BUF_SIZE as u64),
-                &mut buf,
-            )
+            .read_segment(offset + u64::try_from(idx).unwrap(), &mut buf)
             .await?;
-        for (buf_idx, buf_byte) in buf.iter_mut().enumerate() {
-            idx = buf_idx + buf_count * BUF_SIZE;
+        for buf_byte in buf.iter() {
             done_accumulating_size = (0b10000000 & *buf_byte) == 0;
             if idx == 0 {
                 let obj_type_id = 0b01110000 & *buf_byte;
@@ -63,6 +58,7 @@ async fn read_pack_object<F: File>(
                     0b00100000 => PackObjectType::Tree,
                     0b00110000 => PackObjectType::Blob,
                     0b01000000 => PackObjectType::Tag,
+                    0b01100000 => PackObjectType::OffsetDelta { base_offset_neg: 0 },
                     _ => todo!(),
                 });
                 let size_bits = 0b00001111 & *buf_byte;
@@ -72,21 +68,46 @@ async fn read_pack_object<F: File>(
                 let shift: usize = 4 + 7 * (idx - 1);
                 obj_size += (size_bits as usize) << shift;
             }
+            idx += 1;
             if done_accumulating_size {
                 break;
             }
         }
-        buf_count += 1;
+    }
+    let mut obj_type = obj_type.unwrap();
+
+    if let PackObjectType::OffsetDelta {
+        ref mut base_offset_neg,
+    } = obj_type
+    {
+        let mut done_accumulating_base_offset = false;
+        let mut first = true;
+        while !done_accumulating_base_offset {
+            pack_file
+                .read_segment(offset + u64::try_from(idx).unwrap(), &mut buf)
+                .await?;
+            for buf_byte in buf.iter() {
+                done_accumulating_base_offset = (0b10000000 & *buf_byte) == 0;
+                if !first {
+                    *base_offset_neg += 1;
+                }
+                *base_offset_neg <<= 7;
+                *base_offset_neg += u64::from(buf_byte & 0b01111111);
+                idx += 1;
+                if done_accumulating_base_offset {
+                    break;
+                }
+                first = false;
+            }
+        }
     }
 
-    let object_body_offset = offset + u64::try_from(idx).unwrap() + 1;
     let mut body = vec![0u8; obj_size.next_power_of_two()];
     let mut state = DecompressorOxide::new();
-    let mut idx: usize = 0;
     let mut out_idx: usize = 0;
     loop {
         pack_file
-            .read_segment(object_body_offset + u64::try_from(idx).unwrap(), &mut buf)
+            .read_segment(offset + u64::try_from(idx).unwrap(), &mut buf)
             .await?;
         let (status, input_read, output_written) = decompress(
             &mut state,
@@ -112,14 +133,15 @@ async fn read_pack_object<F: File>(
         }
     }
     body.truncate(obj_size);
-    Ok((obj_type.unwrap(), body))
+    Ok((obj_type, body))
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::test::helpers::make_packfile_repo;
+    use crate::test::helpers::{make_basic_repo, make_file, make_packfile_repo};
     use futures::executor::block_on;
     use hex_literal::hex;
+    use std::fs::remove_file;
 
     use super::*;
 
@@ -183,5 +205,44 @@ tagger a user <an-email-address> 946684800 +0000
 a tag
 "
         );
+    }
+
+    #[test]
+    fn read_deltified_offset_object() {
+        let test_repo = make_basic_repo().unwrap();
+        for chr in 0x61..(0x61 + 26) {
+            make_file(&test_repo, str::from_utf8(&[chr]).unwrap()).unwrap();
+        }
+        test_repo.run_git(["add", "--all"]).unwrap();
+        test_repo
+            .commit(
+                "commit 2",
+                "a user",
+                "an-email-address",
+                "2000-01-01T00:00:00Z",
+            )
+            .unwrap();
+        remove_file(test_repo.location.path().join("z")).unwrap();
+        test_repo.run_git(["add", "--all"]).unwrap();
+        test_repo
+            .commit(
+                "commit 3",
+                "a user",
+                "an-email-address",
+                "2000-01-01T00:00:00Z",
+            )
+            .unwrap();
+        test_repo.run_git(["gc"]).unwrap();
+        let mut pack_file = test_repo
+            .pack_file(b"a18a07ab36ab97d3aff3593cc177406ebfa0eeee")
+            .unwrap();
+        let (obj_type, body) = block_on(read_pack_object(&mut pack_file, 646)).unwrap();
+        assert_eq!(
+            obj_type,
+            PackObjectType::OffsetDelta {
+                base_offset_neg: 128
+            }
+        );
+        assert_eq!(body, hex!("94 06 f7 05 b0 f7 02"));
     }
 }
