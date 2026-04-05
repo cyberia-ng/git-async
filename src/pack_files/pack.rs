@@ -4,6 +4,7 @@ use crate::{
 };
 use alloc::vec;
 use alloc::vec::Vec;
+use alloc::boxed::Box;
 use miniz_oxide::inflate::{
     DecompressError, TINFLStatus,
     core::{
@@ -39,8 +40,7 @@ async fn read_pack_object<F: File>(
         return Err(Error::UnsupportedPackVersion);
     }
 
-    const BUF_SIZE: usize = 32;
-    let mut buf = vec![0u8; BUF_SIZE];
+    let mut buf = [0u8; 32];
     let mut obj_type: Option<PackObjectType> = None;
     let mut obj_size: usize = 0;
     let mut done_accumulating_size = false;
@@ -102,16 +102,17 @@ async fn read_pack_object<F: File>(
         }
     }
 
+    let mut compressed_body_buf = vec![0u8; 4096];
     let mut body = vec![0u8; obj_size.next_power_of_two()];
-    let mut state = DecompressorOxide::new();
+    let mut state = Box::new(DecompressorOxide::new());
     let mut out_idx: usize = 0;
     loop {
         pack_file
-            .read_segment(offset + u64::try_from(idx).unwrap(), &mut buf)
+            .read_segment(offset + u64::try_from(idx).unwrap(), &mut compressed_body_buf)
             .await?;
         let (status, input_read, output_written) = decompress(
             &mut state,
-            &buf,
+            &compressed_body_buf,
             &mut body,
             out_idx,
             TINFL_FLAG_HAS_MORE_INPUT
