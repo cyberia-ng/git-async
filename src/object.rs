@@ -59,14 +59,16 @@ impl ObjectId {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct Object {
+#[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub struct Object<'r, D> {
     pub id: ObjectId,
     pub body: ObjectBody,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    repo: &'r Repo<D>,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "serde", serde(tag = "type", content = "value"))]
 pub enum ObjectBody {
@@ -76,22 +78,22 @@ pub enum ObjectBody {
     Blob(Vec<u8>),
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct PeeledCommit {
     pub id: ObjectId,
     pub fields: CommitFields,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct PeeledTree {
     pub id: ObjectId,
     pub fields: TreeFields,
 }
 
-impl Object {
-    pub async fn lookup<D: Directory>(repo: &Repo<D>, id: ObjectId) -> GResult<Self> {
+impl<'r, D: Directory> Object<'r, D> {
+    pub(crate) async fn lookup(repo: &'r Repo<D>, id: ObjectId) -> GResult<Self> {
         let RawObject {
             object_type,
             body,
@@ -103,13 +105,10 @@ impl Object {
         let (_, body) = ObjectBody::parser(object_type)
             .parse(body.as_ref())
             .map_err(|_| Error::MalformedObject(id))?;
-        Ok(Self { id, body })
+        Ok(Self { id, body, repo })
     }
 
-    pub async fn peel_to_commit<D: Directory>(
-        self,
-        repo: &Repo<D>,
-    ) -> GResult<Option<PeeledCommit>> {
+    pub async fn peel_to_commit(self) -> GResult<Option<PeeledCommit>> {
         match self.body {
             ObjectBody::Commit(c) => Ok(Some(PeeledCommit {
                 id: self.id,
@@ -118,14 +117,14 @@ impl Object {
             ObjectBody::Tag(TagFields {
                 object: object_id, ..
             }) => {
-                let object = Object::lookup(repo, object_id).await?;
-                object.peel_to_commit(repo).await
+                let object = Object::lookup(self.repo, object_id).await?;
+                object.peel_to_commit().await
             }
             _ => Ok(None),
         }
     }
 
-    pub async fn peel_to_tree<D: Directory>(self, repo: &Repo<D>) -> GResult<Option<PeeledTree>> {
+    pub async fn peel_to_tree(self) -> GResult<Option<PeeledTree>> {
         match self.body {
             ObjectBody::Tree(t) => Ok(Some(PeeledTree {
                 id: self.id,
@@ -134,8 +133,8 @@ impl Object {
             ObjectBody::Commit(CommitFields {
                 tree: object_id, ..
             }) => {
-                let object = Object::lookup(repo, object_id).await?;
-                object.peel_to_tree(repo).await
+                let object = Object::lookup(self.repo, object_id).await?;
+                object.peel_to_tree().await
             }
             _ => Ok(None),
         }
@@ -422,13 +421,6 @@ impl TreeFields {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct BlobFields {
-    #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
-    pub data: Vec<u8>,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -457,12 +449,12 @@ mod tests {
         test_repo.run_git(["gc"]).unwrap();
         let repo = test_repo.repo();
         let head = block_on(repo.head()).unwrap();
-        let commit = match block_on(head.resolve_to_object(&repo)).unwrap().body {
+        let commit = match block_on(head.peel_to_object()).unwrap().body {
             ObjectBody::Commit(commit) => commit,
             _ => panic!(),
         };
         let tree_id = commit.tree;
-        let tree = match block_on(Object::lookup(&repo, tree_id)).unwrap().body {
+        let tree = match block_on(repo.lookup_object(tree_id)).unwrap().body {
             ObjectBody::Tree(tree) => tree,
             _ => panic!(),
         };

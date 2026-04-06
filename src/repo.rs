@@ -1,6 +1,7 @@
 use crate::{
-    directory::{Directory, DirectoryError, File, search_for_files},
-    error::{Error, GResult},
+    directory::{Directory, DirectoryError, search_for_files},
+    error::GResult,
+    object::{Object, ObjectId},
     reference::{Ref, RefName, read_packed_refs},
 };
 use alloc::vec::Vec;
@@ -14,7 +15,7 @@ impl<D: Directory> Repo<D> {
         Repo { git_dir }
     }
 
-    pub async fn refs(&self) -> GResult<Vec<RefName>> {
+    pub async fn ref_names(&self) -> GResult<Vec<RefName>> {
         let mut out: Vec<RefName> = Vec::new();
         out.push(RefName::Head);
         match self.git_dir.open_file(b"packed-refs").await {
@@ -54,28 +55,38 @@ impl<D: Directory> Repo<D> {
         Ok(out)
     }
 
-    pub async fn head(&self) -> GResult<Ref> {
-        let ref_content = self.git_dir.open_file(b"HEAD").await?.read_all().await?;
-        let (_, reference) =
-            Ref::parse_loose_ref(&ref_content).map_err(|_| Error::MalformedRef(RefName::Head))?;
-        Ok(reference)
+    pub async fn head(&self) -> GResult<Ref<'_, D>> {
+        Ref::lookup(self, &RefName::Head).await
+    }
+
+    pub async fn lookup_ref(&self, name: &RefName) -> GResult<Ref<'_, D>> {
+        Ref::lookup(self, name).await
+    }
+
+    pub async fn lookup_object(&self, id: ObjectId) -> GResult<Object<'_, D>> {
+        Object::lookup(self, id).await
     }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::{
-        reference::{Ref, RefName},
+        reference::RefType,
         test::{helpers::make_basic_repo, repo::TestRepo},
     };
     use futures::executor::block_on;
+
+    use super::*;
 
     #[test]
     fn read_head() {
         let test_repo = TestRepo::new().unwrap();
         let repo = test_repo.repo();
         let head = block_on(repo.head()).unwrap();
-        assert_eq!(head, Ref::Symbolic(RefName::Branch(Vec::from(b"main"))));
+        assert_eq!(
+            head.ref_type,
+            RefType::Symbolic(RefName::Branch(Vec::from(b"main")))
+        );
     }
 
     #[test]
@@ -93,7 +104,7 @@ mod tests {
             .unwrap();
 
         let repo = test_repo.repo();
-        let mut refs = block_on(repo.refs()).unwrap();
+        let mut refs = block_on(repo.ref_names()).unwrap();
         refs.sort();
         let mut expected = vec![
             RefName::Head,

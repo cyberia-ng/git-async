@@ -66,55 +66,75 @@ impl RefName {
     }
 }
 
+#[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub struct Ref<'r, D> {
+    pub name: RefName,
+    pub ref_type: RefType,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    repo: &'r Repo<D>,
+}
+
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "serde", serde(tag = "type", content = "value"))]
-pub enum Ref {
+pub enum RefType {
     Direct(ObjectId),
     Symbolic(RefName),
 }
 
-impl Ref {
-    pub async fn lookup<D: Directory>(repo: &Repo<D>, name: &RefName) -> GResult<Ref> {
-        if let Some(reference) = lookup_loose_ref(repo, name).await? {
-            return Ok(reference);
-        }
-        let mut packed_refs_file = repo.git_dir.open_file(b"packed-refs").await?;
-        let packed_refs = read_packed_refs(&mut packed_refs_file).await?;
-        if let Some((object_id, _)) = packed_refs
-            .into_iter()
-            .find(|(_, ref_name)| ref_name == name)
-        {
-            return Ok(Ref::Direct(object_id));
-        }
-        Err(Error::RefNotFound(name.clone()))
-    }
-
-    pub async fn resolve_to_object<D: Directory>(&self, repo: &Repo<D>) -> GResult<Object> {
-        let mut target = self.clone();
-        while let Ref::Symbolic(name) = target {
-            target = Ref::lookup(repo, &name).await?;
-        }
-        let oid = match target {
-            Ref::Symbolic(_) => unreachable!(),
-            Ref::Direct(oid) => oid,
+impl<'r, D: Directory> Ref<'r, D> {
+    pub(crate) async fn lookup(repo: &'r Repo<D>, name: &RefName) -> GResult<Ref<'r, D>> {
+        let ref_type = {
+            if let Some(reference) = lookup_loose_ref(repo, name).await? {
+                reference
+            } else {
+                let mut packed_refs_file = repo.git_dir.open_file(b"packed-refs").await?;
+                let packed_refs = read_packed_refs(&mut packed_refs_file).await?;
+                if let Some((object_id, _)) = packed_refs
+                    .into_iter()
+                    .find(|(_, ref_name)| ref_name == name)
+                {
+                    RefType::Direct(object_id)
+                } else {
+                    return Err(Error::RefNotFound(name.clone()));
+                }
+            }
         };
-        Object::lookup(repo, oid).await
+        Ok(Self {
+            name: name.clone(),
+            ref_type,
+            repo,
+        })
     }
 
+    pub async fn peel_to_object(&self) -> GResult<Object<'r, D>> {
+        let mut target = self.clone();
+        while let RefType::Symbolic(name) = target.ref_type {
+            target = self.repo.lookup_ref(&name).await?
+        }
+        let oid = match target.ref_type {
+            RefType::Symbolic(_) => unreachable!(),
+            RefType::Direct(oid) => oid,
+        };
+        Object::lookup(self.repo, oid).await
+    }
+}
+
+impl RefType {
     pub(crate) fn parse_loose_ref(content: &[u8]) -> ParseResult<&[u8], Self> {
         all_consuming(terminated(not_line_ending, newline))
             .and_then(alt((
-                ObjectId::parse.map(Ref::Direct),
+                ObjectId::parse.map(RefType::Direct),
                 preceded(
                     tag("ref: refs/"),
                     alt((
                         preceded(tag("heads/"), take_till(|_| false))
-                            .map(|name: &[u8]| Ref::Symbolic(RefName::Branch(name.to_vec()))),
+                            .map(|name: &[u8]| RefType::Symbolic(RefName::Branch(name.to_vec()))),
                         preceded(tag("tags/"), take_till(|_| false))
-                            .map(|name: &[u8]| Ref::Symbolic(RefName::Tag(name.to_vec()))),
+                            .map(|name: &[u8]| RefType::Symbolic(RefName::Tag(name.to_vec()))),
                         preceded(tag("remotes/"), take_till(|_| false))
-                            .map(|name: &[u8]| Ref::Symbolic(RefName::Remote(name.to_vec()))),
+                            .map(|name: &[u8]| RefType::Symbolic(RefName::Remote(name.to_vec()))),
                     )),
                 ),
             )))
@@ -153,16 +173,19 @@ pub(crate) async fn read_packed_refs<F: File>(
     Ok(refs.into_iter().flatten().collect())
 }
 
-async fn lookup_loose_ref<D: Directory>(repo: &Repo<D>, name: &RefName) -> GResult<Option<Ref>> {
+pub(crate) async fn lookup_loose_ref<D: Directory>(
+    repo: &Repo<D>,
+    name: &RefName,
+) -> GResult<Option<RefType>> {
     let mut ref_file = if let Some(file) = name.open_file(repo).await? {
         file
     } else {
         return Ok(None);
     };
     let ref_content = ref_file.read_all().await?;
-    let (_, reference) =
-        Ref::parse_loose_ref(&ref_content).map_err(|_| Error::MalformedRef(name.clone()))?;
-    Ok(Some(reference))
+    let (_, ref_type) =
+        RefType::parse_loose_ref(&ref_content).map_err(|_| Error::MalformedRef(name.clone()))?;
+    Ok(Some(ref_type))
 }
 
 #[cfg(test)]
@@ -182,12 +205,12 @@ mod test {
         let test_repo = make_basic_repo().unwrap();
         let repo = test_repo.repo();
         let head = block_on(repo.head()).unwrap();
-        let head_target = match head {
-            Ref::Direct(_) => panic!(),
-            Ref::Symbolic(name) => name,
+        let head_target = match head.ref_type {
+            RefType::Direct(_) => panic!(),
+            RefType::Symbolic(name) => name,
         };
         let head_target = block_on(Ref::lookup(&repo, &head_target)).unwrap();
-        assert!(matches!(head_target, Ref::Direct(_)));
+        assert!(matches!(head_target.ref_type, RefType::Direct(_)));
     }
 
     #[test]
@@ -195,33 +218,34 @@ mod test {
         let test_repo = make_basic_repo().unwrap();
         let repo = test_repo.repo();
         let head = block_on(repo.head()).unwrap();
-        let object = block_on(head.resolve_to_object(&repo)).unwrap();
+        let object = block_on(head.peel_to_object()).unwrap();
         assert!(matches!(object.body, ObjectBody::Commit(_)));
     }
 
     #[test]
     fn parse_direct_ref() {
         let content = b"6121d0b97779278fcc32cc8a02754e7c588d9c18\n";
-        let (_, parsed) = Ref::parse_loose_ref(content).unwrap();
+        let (_, parsed) = RefType::parse_loose_ref(content).unwrap();
         assert_eq!(
             parsed,
-            Ref::Direct(ObjectId(hex!("6121d0b97779278fcc32cc8a02754e7c588d9c18"),))
+            RefType::Direct(ObjectId(hex!("6121d0b97779278fcc32cc8a02754e7c588d9c18"),))
         );
     }
 
     #[test]
     fn parse_symbolic_ref() {
         let content = b"ref: refs/heads/main\n";
-        let (_, parsed) = Ref::parse_loose_ref(content).unwrap();
-        assert_eq!(parsed, Ref::Symbolic(RefName::Branch(b"main".to_vec())));
+        let (_, parsed) = RefType::parse_loose_ref(content).unwrap();
+        assert_eq!(parsed, RefType::Symbolic(RefName::Branch(b"main".to_vec())));
     }
 
     #[test]
     fn read_thin_packed_ref() {
         let test_repo = make_packfile_repo().unwrap();
         let repo = test_repo.repo();
-        let main = Ref::Symbolic(RefName::Branch("main".as_bytes().to_vec()));
-        let object = block_on(main.resolve_to_object(&repo)).unwrap();
+        let main = RefName::Branch(b"main".to_vec());
+        let main = block_on(repo.lookup_ref(&main)).unwrap();
+        let object = block_on(main.peel_to_object()).unwrap();
         assert!(matches!(object.body, ObjectBody::Commit(_)));
     }
 
@@ -229,8 +253,9 @@ mod test {
     fn read_fat_packed_ref() {
         let test_repo = make_packfile_repo().unwrap();
         let repo = test_repo.repo();
-        let main = Ref::Symbolic(RefName::Tag("a-fat-tag".as_bytes().to_vec()));
-        let object = block_on(main.resolve_to_object(&repo)).unwrap();
+        let tag = RefName::Tag(b"a-fat-tag".to_vec());
+        let tag = block_on(repo.lookup_ref(&tag)).unwrap();
+        let object = block_on(tag.peel_to_object()).unwrap();
         assert!(matches!(object.body, ObjectBody::Tag(_)));
     }
 }
