@@ -5,6 +5,7 @@ pub mod directory;
 pub mod error;
 pub mod object;
 mod object_store;
+mod parsing;
 pub mod reference;
 pub mod repo;
 

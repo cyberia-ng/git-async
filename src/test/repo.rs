@@ -28,7 +28,7 @@ pub struct TestRepoDirectory {
 #[derive(Debug)]
 pub struct TestRepoFile {
     pub file: fs::File,
-    _temp_dir: Rc<TempDir>,
+    _dir: Rc<TempDir>,
 }
 
 impl TestRepo {
@@ -143,7 +143,7 @@ impl TestRepo {
             .open(self.pack_dir_path().join(OsStr::from_bytes(&idx_name)))?;
         Ok(TestRepoFile {
             file,
-            _temp_dir: self.location.clone(),
+            _dir: self.location.clone(),
         })
     }
 
@@ -157,7 +157,7 @@ impl TestRepo {
             .open(self.pack_dir_path().join(OsStr::from_bytes(&pack_name)))?;
         Ok(TestRepoFile {
             file,
-            _temp_dir: self.location.clone(),
+            _dir: self.location.clone(),
         })
     }
 }
@@ -219,7 +219,7 @@ impl Directory for TestRepoDirectory {
         };
         Ok(TestRepoFile {
             file,
-            _temp_dir: self.root.clone(),
+            _dir: self.root.clone(),
         })
     }
 }

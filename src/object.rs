@@ -2,6 +2,7 @@ use crate::{
     directory::Directory,
     error::{Error, GResult},
     object_store::{RawObject, RawObjectType, lookup::lookup},
+    parsing::{ParseError, ParseResult},
     repo::Repo,
 };
 use alloc::format;
@@ -11,10 +12,10 @@ use nom::{
     Parser,
     branch::alt,
     bytes::complete::{tag, take, take_till, take_until},
-    character::complete::{char, hex_digit0, i32, i64, newline},
-    combinator::all_consuming,
-    multi::many,
-    sequence::{delimited, terminated},
+    character::complete::{char, hex_digit0, i32, i64, newline, not_line_ending, space1},
+    combinator::{all_consuming, not, peek},
+    multi::{many, many0},
+    sequence::{delimited, preceded, terminated},
 };
 
 #[cfg(feature = "serde")]
@@ -41,7 +42,7 @@ impl alloc::fmt::Debug for ObjectId {
 }
 
 impl ObjectId {
-    pub(crate) fn parse(input: &[u8]) -> nom::IResult<&[u8], Self> {
+    pub(crate) fn parse(input: &[u8]) -> ParseResult<&[u8], Self> {
         take(40usize)
             .and_then(all_consuming(hex_digit0))
             .map_res(|hex_str| {
@@ -97,7 +98,7 @@ impl Object {
     fn parser<'a>(
         id: ObjectId,
         object_type: RawObjectType,
-    ) -> impl Fn(&'a [u8]) -> nom::IResult<&'a [u8], Object> {
+    ) -> impl Fn(&'a [u8]) -> ParseResult<&'a [u8], Object> {
         move |body: &[u8]| {
             let (_, out) = match object_type {
                 RawObjectType::Commit => all_consuming(Commit::parser(id))
@@ -124,6 +125,43 @@ impl Object {
 
 #[derive(Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct ObjectHeader {
+    #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
+    name: Vec<u8>,
+    #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
+    value: Vec<u8>,
+}
+
+fn parse_object_headers(input: &[u8]) -> ParseResult<&[u8], Vec<ObjectHeader>> {
+    let header = (
+        delimited(peek(not(newline)), take_till(|c| c == b' '), char(' ')),
+        terminated(
+            (
+                not_line_ending,
+                many0(preceded((newline, space1), not_line_ending)),
+            ),
+            newline,
+        ),
+    );
+    let mut p = terminated(many0(header), newline);
+    let (rest, raw_headers) = p.parse(input)?;
+    let mut headers: Vec<ObjectHeader> = Vec::new();
+    for (name, (first_line, continuation_lines)) in raw_headers {
+        let mut full_line = first_line.to_vec();
+        for line in continuation_lines {
+            full_line.push(b' ');
+            full_line.extend_from_slice(line);
+        }
+        headers.push(ObjectHeader {
+            name: name.to_vec(),
+            value: full_line,
+        });
+    }
+    Ok((rest, headers))
+}
+
+#[derive(Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Commit {
     pub id: ObjectId,
     #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
@@ -140,45 +178,70 @@ pub struct Commit {
     pub parents: Vec<ObjectId>,
     #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
     pub message: Vec<u8>,
+    pub additional_headers: Vec<ObjectHeader>,
 }
 
 impl Commit {
-    fn parser<'a>(id: ObjectId) -> impl Fn(&'a [u8]) -> nom::IResult<&'a [u8], Self> {
+    fn parser<'a>(id: ObjectId) -> impl Fn(&'a [u8]) -> ParseResult<&'a [u8], Self> {
         move |input| {
-            let mut p = (
-                delimited(tag("tree "), ObjectId::parse, newline),
-                many(0.., delimited(tag("parent "), ObjectId::parse, newline)),
-                delimited(tag("author "), parse_author_committer_tagger, newline),
-                delimited(
-                    tag("committer "),
-                    parse_author_committer_tagger,
-                    tag("\n\n"),
-                ),
-            );
-            let (
-                message,
-                (
-                    tree_id,
-                    parents,
-                    (author_name, author_email, author_date),
-                    (committer_name, committer_email, commit_date),
-                ),
-            ) = p.parse(input)?;
-            Ok((
-                &[][..],
-                Commit {
+            let (message, raw_headers) = parse_object_headers.parse(input)?;
+            let mut tree_id: Option<ObjectId> = None;
+            let mut parents: Vec<ObjectId> = Vec::new();
+            let mut author_name: Option<Vec<u8>> = None;
+            let mut author_email: Option<Vec<u8>> = None;
+            let mut author_date: Option<DateTime<FixedOffset>> = None;
+            let mut committer_name: Option<Vec<u8>> = None;
+            let mut committer_email: Option<Vec<u8>> = None;
+            let mut commit_date: Option<DateTime<FixedOffset>> = None;
+            let mut additional_headers: Vec<ObjectHeader> = Vec::new();
+            for ObjectHeader { name, value } in raw_headers {
+                match name.as_slice() {
+                    b"tree" => {
+                        let (_, object_id) = all_consuming(ObjectId::parse).parse(&value)?;
+                        tree_id = Some(object_id);
+                    }
+                    b"parent" => {
+                        let (_, object_id) = all_consuming(ObjectId::parse).parse(&value)?;
+                        parents.push(object_id);
+                    }
+                    b"author" => {
+                        let (_, (name, email, date)) =
+                            all_consuming(parse_author_committer_tagger).parse(&value)?;
+                        author_name = Some(name.to_vec());
+                        author_email = Some(email.to_vec());
+                        author_date = Some(date);
+                    }
+                    b"committer" => {
+                        let (_, (name, email, date)) =
+                            all_consuming(parse_author_committer_tagger).parse(&value)?;
+                        committer_name = Some(name.to_vec());
+                        committer_email = Some(email.to_vec());
+                        commit_date = Some(date);
+                    }
+                    _ => {
+                        additional_headers.push(ObjectHeader { name, value });
+                    }
+                }
+            }
+            let f = move || -> Option<Commit> {
+                Some(Commit {
                     id,
-                    author_name: author_name.to_vec(),
-                    author_email: author_email.to_vec(),
-                    author_date,
-                    committer_name: committer_name.to_vec(),
-                    committer_email: committer_email.to_vec(),
-                    commit_date,
-                    tree: tree_id,
+                    author_name: Option::map(author_name, Vec::from)?,
+                    author_email: Option::map(author_email, Vec::from)?,
+                    author_date: author_date?,
+                    committer_name: Option::map(committer_name, Vec::from)?,
+                    committer_email: Option::map(committer_email, Vec::from)?,
+                    commit_date: commit_date?,
+                    tree: tree_id?,
                     parents,
                     message: message.to_vec(),
-                },
-            ))
+                    additional_headers,
+                })
+            };
+            match f() {
+                None => Err(nom::Err::Failure(ParseError::MissingFields)),
+                Some(commit) => Ok((&[][..], commit)),
+            }
         }
     }
 }
@@ -210,7 +273,7 @@ pub struct Tag {
 }
 
 impl Tag {
-    fn parser<'a>(id: ObjectId) -> impl Fn(&'a [u8]) -> nom::IResult<&'a [u8], Self> {
+    fn parser<'a>(id: ObjectId) -> impl Fn(&'a [u8]) -> ParseResult<&'a [u8], Self> {
         move |input| {
             let mut p = (
                 delimited(tag("object "), ObjectId::parse, newline),
@@ -249,7 +312,7 @@ impl Tag {
 #[allow(clippy::type_complexity)]
 fn parse_author_committer_tagger(
     input: &[u8],
-) -> nom::IResult<&[u8], (&[u8], &[u8], DateTime<FixedOffset>)> {
+) -> ParseResult<&[u8], (&[u8], &[u8], DateTime<FixedOffset>)> {
     (
         terminated(take_until(" <"), tag(" <")),
         terminated(take_until("> "), tag("> ")),
@@ -296,7 +359,7 @@ pub struct Tree {
 }
 
 impl TreeEntry {
-    fn parser(input: &[u8]) -> nom::IResult<&[u8], Self> {
+    fn parser(input: &[u8]) -> ParseResult<&[u8], Self> {
         let entry_type_parser = alt((
             tag("40000").map(|_| TreeEntryType::Tree),
             tag("100644").map(|_| TreeEntryType::File),
@@ -322,7 +385,7 @@ impl TreeEntry {
 }
 
 impl Tree {
-    fn parser<'a>(id: ObjectId) -> impl Fn(&'a [u8]) -> nom::IResult<&'a [u8], Self> {
+    fn parser<'a>(id: ObjectId) -> impl Fn(&'a [u8]) -> ParseResult<&'a [u8], Self> {
         move |input| {
             many(0.., TreeEntry::parser)
                 .map(|entries| Tree { id, entries })
@@ -340,7 +403,7 @@ pub struct Blob {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
 
     use crate::test::helpers::{make_basic_repo, make_similar_commits};
@@ -386,7 +449,7 @@ mod test {
     }
 
     #[test]
-    fn test_parse_root_commit() {
+    fn parse_root_commit() {
         let data = b"tree 3a4df67dd7fd7cb3ca82d9896dbdd28053d39bdb
 author a-user <an-email-address> 1774735018 +0530
 committer another-user <another-email-address> 1774735019 -0800
@@ -431,7 +494,7 @@ a commit
     }
 
     #[test]
-    fn test_parse_normal_commit() {
+    fn parse_normal_commit() {
         let data = b"tree 4b825dc642cb6eb9a060e54bf8d69288fbee4904
 parent 16dafd3d0ba5af72f035d641c076a4150eda548d
 author a-user <an-email-address> 1774739676 +0000
@@ -453,7 +516,7 @@ another commit
     }
 
     #[test]
-    fn test_parse_merge_commit() {
+    fn parse_merge_commit() {
         let data = b"tree bfb6d701e108f3be27395bd60c3417b47ffbe7d9
 parent f625376d12f2edc71cff70bb42d387ddf2408460
 parent 6904799d30a34bfcf6ca6a3526fc8b771ed6705c
@@ -473,7 +536,7 @@ Merge branch 'branch'
     }
 
     #[test]
-    fn test_parse_author_committer_line() {
+    fn parse_author_committer_line() {
         let example = "an author <an-email-address> 0 +0000";
         parse_author_committer_tagger(example.as_bytes()).unwrap();
     }
@@ -642,5 +705,40 @@ a tag
             _ => panic!(),
         };
         assert_eq!(object.data, b"hello world");
+    }
+
+    #[test]
+    fn parse_commit_additional_headers() {
+        let data = b"tree bfb6d701e108f3be27395bd60c3417b47ffbe7d9
+parent f625376d12f2edc71cff70bb42d387ddf2408460
+author a-user <an-email-address> 1774740069 +0000
+committer a-user <an-email-address> 1774740069 +0000
+some-header a value
+some-other-header a long line-wrapped
+  value
+
+the commit message
+";
+        let (_, object) = Object::parser(ObjectId([0u8; 20]), RawObjectType::Commit)
+            .parse(data)
+            .unwrap();
+        let commit = match object {
+            Object::Commit(commit) => commit,
+            _ => panic!(),
+        };
+        assert_eq!(commit.additional_headers.len(), 2);
+        assert_eq!(
+            commit.additional_headers,
+            [
+                ObjectHeader {
+                    name: b"some-header".to_vec(),
+                    value: b"a value".to_vec()
+                },
+                ObjectHeader {
+                    name: b"some-other-header".to_vec(),
+                    value: b"a long line-wrapped value".to_vec()
+                },
+            ]
+        )
     }
 }

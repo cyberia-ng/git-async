@@ -2,6 +2,7 @@ use crate::{
     directory::{Directory, DirectoryError, File},
     error::{Error, GResult},
     object::{Object, ObjectId},
+    parsing::ParseResult,
     repo::Repo,
 };
 use alloc::vec::Vec;
@@ -101,7 +102,7 @@ impl Ref {
         Object::lookup(repo, oid).await
     }
 
-    pub(crate) fn parse_loose_ref(content: &[u8]) -> nom::IResult<&[u8], Self> {
+    pub(crate) fn parse_loose_ref(content: &[u8]) -> ParseResult<&[u8], Self> {
         all_consuming(terminated(not_line_ending, newline))
             .and_then(alt((
                 ObjectId::parse.map(Ref::Direct),
