@@ -8,6 +8,8 @@ mod object_store;
 mod parsing;
 mod reference;
 mod repo;
+#[cfg(feature = "serde")]
+mod serde;
 
 pub use object::{
     CommitFields, Object, ObjectBody, ObjectHeader, ObjectId, PeeledCommit, PeeledTree, TagFields,

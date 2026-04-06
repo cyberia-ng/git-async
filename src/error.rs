@@ -11,7 +11,7 @@ pub type GResult<T> = core::result::Result<T, Error>;
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Error {
     Directory(#[cfg_attr(feature = "serde", serde(skip))] DirectoryError),
-    PathError(#[cfg_attr(feature = "serde", serde(with = "serde_bytes"))] Vec<u8>),
+    PathError(#[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))] Vec<u8>),
     DecompressError(#[cfg_attr(feature = "serde", serde(skip))] DecompressError),
     MalformedObject(ObjectId),
     MalformedRef(RefName),

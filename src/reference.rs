@@ -25,9 +25,9 @@ use serde::{Deserialize, Serialize};
 #[cfg_attr(feature = "serde", serde(tag = "type", content = "value"))]
 pub enum RefName {
     Head,
-    Branch(#[cfg_attr(feature = "serde", serde(with = "serde_bytes"))] Vec<u8>),
-    Tag(#[cfg_attr(feature = "serde", serde(with = "serde_bytes"))] Vec<u8>),
-    Remote(#[cfg_attr(feature = "serde", serde(with = "serde_bytes"))] Vec<u8>),
+    Branch(#[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))] Vec<u8>),
+    Tag(#[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))] Vec<u8>),
+    Remote(#[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))] Vec<u8>),
 }
 
 impl RefName {

@@ -23,8 +23,7 @@ use nom::{
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct ObjectId(#[cfg_attr(feature = "serde", serde(with = "serde_bytes"))] pub [u8; 20]);
+pub struct ObjectId(pub [u8; 20]);
 
 impl alloc::fmt::Display for ObjectId {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -170,11 +169,11 @@ impl ObjectBody {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct ObjectHeader {
     #[access(get(ty(&[u8])))]
-    #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
     name: Vec<u8>,
 
     #[access(get(ty(&[u8])))]
-    #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
     value: Vec<u8>,
 }
 
@@ -216,29 +215,29 @@ pub struct CommitFields {
     parents: Vec<ObjectId>,
 
     #[access(get(ty(&[u8])))]
-    #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
     author_name: Vec<u8>,
 
     #[access(get(ty(&[u8])))]
-    #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
     author_email: Vec<u8>,
 
     #[access(get(cp))]
     author_date: DateTime<FixedOffset>,
 
     #[access(get(ty(&[u8])))]
-    #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
     committer_name: Vec<u8>,
 
     #[access(get(ty(&[u8])))]
-    #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
     committer_email: Vec<u8>,
 
     #[access(get(cp))]
     commit_date: DateTime<FixedOffset>,
 
     #[access(get(ty(&[u8])))]
-    #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
     message: Vec<u8>,
 
     #[access(get(ty(&[ObjectHeader])))]
@@ -321,14 +320,14 @@ pub enum TagType {
 pub struct TagFields {
     pub object: ObjectId,
     pub tag_type: TagType,
-    #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
     pub tag: Vec<u8>,
-    #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
     pub tagger_name: Vec<u8>,
-    #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
     pub tagger_email: Vec<u8>,
     pub tag_date: DateTime<FixedOffset>,
-    #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
     pub message: Vec<u8>,
 }
 
@@ -402,7 +401,7 @@ pub enum TreeEntryType {
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct TreeEntry {
-    #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
     pub name: Vec<u8>,
     pub entry_type: TreeEntryType,
     pub id: ObjectId,
