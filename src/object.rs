@@ -74,12 +74,12 @@ pub struct Object<'r, D> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[cfg_attr(feature = "serde", serde(tag = "type", content = "value"))]
+#[cfg_attr(feature = "serde", serde(tag = "type"))]
 pub enum ObjectBody {
     Commit(CommitFields),
     Tag(TagFields),
     Tree(TreeFields),
-    Blob(Vec<u8>),
+    Blob(BlobFields),
 }
 
 #[derive(Debug, Clone)]
@@ -158,7 +158,12 @@ impl ObjectBody {
                 RawObjectType::Tree => all_consuming(TreeFields::parser)
                     .map(ObjectBody::Tree)
                     .parse(body)?,
-                RawObjectType::Blob => (&[][..], ObjectBody::Blob(body.to_vec())),
+                RawObjectType::Blob => (
+                    &[][..],
+                    ObjectBody::Blob(BlobFields {
+                        data: body.to_vec(),
+                    }),
+                ),
             };
             Ok((&[][..], body))
         }
@@ -447,6 +452,13 @@ impl TreeFields {
     }
 }
 
+#[derive(Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct BlobFields {
+    #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
+    pub data: Vec<u8>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -722,7 +734,7 @@ a tag
             ObjectBody::Blob(blob) => blob,
             _ => panic!(),
         };
-        assert_eq!(blob, &[]);
+        assert_eq!(blob.data, &[]);
     }
 
     #[test]
@@ -735,7 +747,7 @@ a tag
             ObjectBody::Blob(blob) => blob,
             _ => panic!(),
         };
-        assert_eq!(blob, b"hello world");
+        assert_eq!(blob.data, b"hello world");
     }
 
     #[test]
