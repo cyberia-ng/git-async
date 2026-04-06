@@ -23,10 +23,10 @@ use serde::{Deserialize, Serialize};
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "serde", serde(tag = "type", content = "value"))]
 pub enum RefName {
+    Head,
     Branch(#[cfg_attr(feature = "serde", serde(with = "serde_bytes"))] Vec<u8>),
     Tag(#[cfg_attr(feature = "serde", serde(with = "serde_bytes"))] Vec<u8>),
     Remote(#[cfg_attr(feature = "serde", serde(with = "serde_bytes"))] Vec<u8>),
-    Head,
 }
 
 impl RefName {
@@ -69,8 +69,8 @@ impl RefName {
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Ref<'r, D> {
-    pub name: RefName,
-    pub ref_type: RefType,
+    name: RefName,
+    ref_type: RefType,
     #[cfg_attr(feature = "serde", serde(skip))]
     repo: &'r Repo<D>,
 }
@@ -84,6 +84,14 @@ pub enum RefType {
 }
 
 impl<'r, D: Directory> Ref<'r, D> {
+    pub fn name(&self) -> &RefName {
+        &self.name
+    }
+
+    pub fn ref_type(&self) -> &RefType {
+        &self.ref_type
+    }
+
     pub(crate) async fn lookup(repo: &'r Repo<D>, name: &RefName) -> GResult<Ref<'r, D>> {
         let ref_type = {
             if let Some(reference) = lookup_loose_ref(repo, name).await? {
@@ -219,7 +227,7 @@ mod test {
         let repo = test_repo.repo();
         let head = block_on(repo.head()).unwrap();
         let object = block_on(head.peel_to_object()).unwrap();
-        assert!(matches!(object.body, ObjectBody::Commit(_)));
+        assert!(matches!(object.body(), ObjectBody::Commit(_)));
     }
 
     #[test]
@@ -246,7 +254,7 @@ mod test {
         let main = RefName::Branch(b"main".to_vec());
         let main = block_on(repo.lookup_ref(&main)).unwrap();
         let object = block_on(main.peel_to_object()).unwrap();
-        assert!(matches!(object.body, ObjectBody::Commit(_)));
+        assert!(matches!(object.body(), ObjectBody::Commit(_)));
     }
 
     #[test]
@@ -256,6 +264,6 @@ mod test {
         let tag = RefName::Tag(b"a-fat-tag".to_vec());
         let tag = block_on(repo.lookup_ref(&tag)).unwrap();
         let object = block_on(tag.peel_to_object()).unwrap();
-        assert!(matches!(object.body, ObjectBody::Tag(_)));
+        assert!(matches!(object.body(), ObjectBody::Tag(_)));
     }
 }

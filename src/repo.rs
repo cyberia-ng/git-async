@@ -84,8 +84,8 @@ mod tests {
         let repo = test_repo.repo();
         let head = block_on(repo.head()).unwrap();
         assert_eq!(
-            head.ref_type,
-            RefType::Symbolic(RefName::Branch(Vec::from(b"main")))
+            head.ref_type(),
+            &RefType::Symbolic(RefName::Branch(Vec::from(b"main")))
         );
     }
 

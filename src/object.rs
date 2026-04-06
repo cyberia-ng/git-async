@@ -53,7 +53,7 @@ impl ObjectId {
             .parse(input)
     }
 
-    pub fn from_encoded(s: &[u8]) -> Option<Self> {
+    pub fn from_hex(s: &[u8]) -> Option<Self> {
         let (_, oid) = all_consuming(Self::parse).parse(s).ok()?;
         Some(oid)
     }
@@ -62,8 +62,8 @@ impl ObjectId {
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Object<'r, D> {
-    pub id: ObjectId,
-    pub body: ObjectBody,
+    id: ObjectId,
+    body: ObjectBody,
     #[cfg_attr(feature = "serde", serde(skip))]
     repo: &'r Repo<D>,
 }
@@ -93,6 +93,14 @@ pub struct PeeledTree {
 }
 
 impl<'r, D: Directory> Object<'r, D> {
+    pub fn id(&self) -> ObjectId {
+        self.id
+    }
+
+    pub fn body(&self) -> &ObjectBody {
+        &self.body
+    }
+
     pub(crate) async fn lookup(repo: &'r Repo<D>, id: ObjectId) -> GResult<Self> {
         let RawObject {
             object_type,
@@ -170,6 +178,16 @@ pub struct ObjectHeader {
     value: Vec<u8>,
 }
 
+impl ObjectHeader {
+    pub fn name(&self) -> &[u8] {
+        &self.name
+    }
+
+    pub fn value(&self) -> &[u8] {
+        &self.value
+    }
+}
+
 fn parse_object_headers(input: &[u8]) -> ParseResult<&[u8], Vec<ObjectHeader>> {
     let header = (
         delimited(peek(not(newline)), take_till(|c| c == b' '), char(' ')),
@@ -201,6 +219,8 @@ fn parse_object_headers(input: &[u8]) -> ParseResult<&[u8], Vec<ObjectHeader>> {
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct CommitFields {
+    pub tree: ObjectId,
+    pub parents: Vec<ObjectId>,
     #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
     pub author_name: Vec<u8>,
     #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
@@ -211,8 +231,6 @@ pub struct CommitFields {
     #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
     pub committer_email: Vec<u8>,
     pub commit_date: DateTime<FixedOffset>,
-    pub tree: ObjectId,
-    pub parents: Vec<ObjectId>,
     #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
     pub message: Vec<u8>,
     pub additional_headers: Vec<ObjectHeader>,
@@ -434,7 +452,7 @@ mod tests {
     fn lookup_commit() {
         let test_repo = make_basic_repo().unwrap();
         let commit_id = test_repo.run_git(["rev-parse", "HEAD"]).unwrap();
-        let commit_id = ObjectId::from_encoded(commit_id.trim_ascii()).unwrap();
+        let commit_id = ObjectId::from_hex(commit_id.trim_ascii()).unwrap();
 
         let repo = test_repo.repo();
         let object = block_on(Object::lookup(&repo, commit_id)).unwrap();

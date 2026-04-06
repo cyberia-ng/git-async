@@ -3,11 +3,18 @@ extern crate alloc;
 
 pub mod directory;
 pub mod error;
-pub mod object;
+mod object;
 mod object_store;
 mod parsing;
-pub mod reference;
-pub mod repo;
+mod reference;
+mod repo;
+
+pub use object::{
+    CommitFields, Object, ObjectBody, ObjectHeader, ObjectId, PeeledCommit, PeeledTree, TagFields,
+    TagType, TreeEntry, TreeEntryType, TreeFields,
+};
+pub use reference::{Ref, RefName, RefType};
+pub use repo::Repo;
 
 #[cfg(test)]
 mod test {

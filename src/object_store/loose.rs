@@ -77,7 +77,7 @@ mod tests {
     fn test_read_loose_object_existing() {
         let test_repo = make_basic_repo().unwrap();
         let commit_id = test_repo.run_git(["rev-parse", "HEAD"]).unwrap();
-        let commit_id = ObjectId::from_encoded(commit_id.trim_ascii()).unwrap();
+        let commit_id = ObjectId::from_hex(commit_id.trim_ascii()).unwrap();
 
         let repo = test_repo.repo();
         let object = block_on(read_loose_object(&repo, commit_id))
