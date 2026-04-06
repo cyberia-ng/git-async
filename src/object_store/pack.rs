@@ -160,7 +160,7 @@ async fn read_pack_object<F: File>(pack_file: &mut F, offset: u64) -> GResult<Pa
 
     let mut compressed_body_buf = vec![0u8; 4096];
     let mut body = vec![0u8; obj_size.next_power_of_two()];
-    let mut state = Box::new(DecompressorOxide::new());
+    let mut state = Box::<DecompressorOxide>::default();
     let mut out_idx: usize = 0;
     loop {
         pack_file
