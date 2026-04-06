@@ -276,6 +276,7 @@ pub enum TreeEntryType {
     Executable,
     Symlink,
     Tree,
+    Commit,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -301,6 +302,7 @@ impl TreeEntry {
             tag("100644").map(|_| TreeEntryType::File),
             tag("100755").map(|_| TreeEntryType::Executable),
             tag("120000").map(|_| TreeEntryType::Symlink),
+            tag("160000").map(|_| TreeEntryType::Commit),
         ));
         let mut p = (
             terminated(entry_type_parser, char(' ')),
@@ -575,6 +577,8 @@ a tag
         data.extend_from_slice(&hex!("7c35e066a9001b24677ae572214d292cebc55979"));
         data.extend_from_slice(b"100755 an-executable-file\0");
         data.extend_from_slice(&hex!("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"));
+        data.extend_from_slice(b"160000 a-commit\0");
+        data.extend_from_slice(&hex!("91ca81cfccb6f88a34807e9810bb0be409f32d70"));
         let (_, object) = Object::parser(ObjectId([0u8; 20]), RawObjectType::Tree)
             .parse(&data)
             .unwrap();
@@ -602,6 +606,11 @@ a tag
                 entry_type: TreeEntryType::Executable,
                 id: ObjectId(hex!("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391")),
                 name: Vec::from(b"an-executable-file"),
+            },
+            TreeEntry {
+                entry_type: TreeEntryType::Commit,
+                id: ObjectId(hex!("91ca81cfccb6f88a34807e9810bb0be409f32d70")),
+                name: Vec::from(b"a-commit"),
             },
         ];
         for (entry, expected) in zip(tree.entries.iter(), expected_entries.iter()) {
