@@ -5,6 +5,7 @@ use crate::{
     parsing::{ParseError, ParseResult},
     repo::Repo,
 };
+use accessory::Accessors;
 use alloc::format;
 use alloc::vec::Vec;
 use chrono::{DateTime, FixedOffset};
@@ -59,11 +60,15 @@ impl ObjectId {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Accessors)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Object<'r, D> {
+    #[access(get(cp))]
     id: ObjectId,
+
+    #[access(get)]
     body: ObjectBody,
+
     #[cfg_attr(feature = "serde", serde(skip))]
     repo: &'r Repo<D>,
 }
@@ -93,14 +98,6 @@ pub struct PeeledTree {
 }
 
 impl<'r, D: Directory> Object<'r, D> {
-    pub fn id(&self) -> ObjectId {
-        self.id
-    }
-
-    pub fn body(&self) -> &ObjectBody {
-        &self.body
-    }
-
     pub(crate) async fn lookup(repo: &'r Repo<D>, id: ObjectId) -> GResult<Self> {
         let RawObject {
             object_type,
@@ -169,23 +166,16 @@ impl ObjectBody {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Accessors)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct ObjectHeader {
+    #[access(get(ty(&[u8])))]
     #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
     name: Vec<u8>,
+
+    #[access(get(ty(&[u8])))]
     #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
     value: Vec<u8>,
-}
-
-impl ObjectHeader {
-    pub fn name(&self) -> &[u8] {
-        &self.name
-    }
-
-    pub fn value(&self) -> &[u8] {
-        &self.value
-    }
 }
 
 fn parse_object_headers(input: &[u8]) -> ParseResult<&[u8], Vec<ObjectHeader>> {
@@ -216,24 +206,43 @@ fn parse_object_headers(input: &[u8]) -> ParseResult<&[u8], Vec<ObjectHeader>> {
     Ok((rest, headers))
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Accessors)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct CommitFields {
-    pub tree: ObjectId,
-    pub parents: Vec<ObjectId>,
+    #[access(get(cp))]
+    tree: ObjectId,
+
+    #[access(get(ty(&[ObjectId])))]
+    parents: Vec<ObjectId>,
+
+    #[access(get(ty(&[u8])))]
     #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
-    pub author_name: Vec<u8>,
+    author_name: Vec<u8>,
+
+    #[access(get(ty(&[u8])))]
     #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
-    pub author_email: Vec<u8>,
-    pub author_date: DateTime<FixedOffset>,
+    author_email: Vec<u8>,
+
+    #[access(get(cp))]
+    author_date: DateTime<FixedOffset>,
+
+    #[access(get(ty(&[u8])))]
     #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
-    pub committer_name: Vec<u8>,
+    committer_name: Vec<u8>,
+
+    #[access(get(ty(&[u8])))]
     #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
-    pub committer_email: Vec<u8>,
-    pub commit_date: DateTime<FixedOffset>,
+    committer_email: Vec<u8>,
+
+    #[access(get(cp))]
+    commit_date: DateTime<FixedOffset>,
+
+    #[access(get(ty(&[u8])))]
     #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
-    pub message: Vec<u8>,
-    pub additional_headers: Vec<ObjectHeader>,
+    message: Vec<u8>,
+
+    #[access(get(ty(&[ObjectHeader])))]
+    additional_headers: Vec<ObjectHeader>,
 }
 
 impl CommitFields {

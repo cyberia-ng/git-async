@@ -5,6 +5,7 @@ use crate::{
     parsing::ParseResult,
     repo::Repo,
 };
+use accessory::Accessors;
 use alloc::vec::Vec;
 use nom::{
     Parser,
@@ -66,11 +67,15 @@ impl RefName {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Accessors)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Ref<'r, D> {
+    #[access(get)]
     name: RefName,
+
+    #[access(get)]
     ref_type: RefType,
+
     #[cfg_attr(feature = "serde", serde(skip))]
     repo: &'r Repo<D>,
 }
@@ -84,14 +89,6 @@ pub enum RefType {
 }
 
 impl<'r, D: Directory> Ref<'r, D> {
-    pub fn name(&self) -> &RefName {
-        &self.name
-    }
-
-    pub fn ref_type(&self) -> &RefType {
-        &self.ref_type
-    }
-
     pub(crate) async fn lookup(repo: &'r Repo<D>, name: &RefName) -> GResult<Ref<'r, D>> {
         let ref_type = {
             if let Some(reference) = lookup_loose_ref(repo, name).await? {
