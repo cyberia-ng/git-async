@@ -59,14 +59,35 @@ impl ObjectId {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct Object {
+    pub id: ObjectId,
+    pub body: ObjectBody,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "serde", serde(tag = "type", content = "value"))]
-pub enum Object {
-    Commit(Commit),
-    Tag(Tag),
-    Tree(Tree),
-    Blob(Blob),
+pub enum ObjectBody {
+    Commit(CommitFields),
+    Tag(TagFields),
+    Tree(TreeFields),
+    Blob(Vec<u8>),
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct PeeledCommit {
+    pub id: ObjectId,
+    pub fields: CommitFields,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct PeeledTree {
+    pub id: ObjectId,
+    pub fields: TreeFields,
 }
 
 impl Object {
@@ -79,51 +100,69 @@ impl Object {
             .await?
             .ok_or_else(|| Error::MissingObject(id))?;
 
-        let (_, out) = Object::parser(id, object_type)
+        let (_, body) = ObjectBody::parser(object_type)
             .parse(body.as_ref())
             .map_err(|_| Error::MalformedObject(id))?;
-        Ok(out)
+        Ok(Self { id, body })
     }
 
-    pub fn id(&self) -> ObjectId {
-        use Object::*;
-        match self {
-            Commit(commit) => commit.id,
-            Tag(tag) => tag.id,
-            Tree(tree) => tree.id,
-            Blob(blob) => blob.id,
+    pub async fn peel_to_commit<D: Directory>(
+        self,
+        repo: &Repo<D>,
+    ) -> GResult<Option<PeeledCommit>> {
+        match self.body {
+            ObjectBody::Commit(c) => Ok(Some(PeeledCommit {
+                id: self.id,
+                fields: c,
+            })),
+            ObjectBody::Tag(TagFields {
+                object: object_id, ..
+            }) => {
+                let object = Object::lookup(repo, object_id).await?;
+                object.peel_to_commit(repo).await
+            }
+            _ => Ok(None),
         }
     }
 
-    fn parser<'a>(
-        id: ObjectId,
-        object_type: RawObjectType,
-    ) -> impl Fn(&'a [u8]) -> ParseResult<&'a [u8], Object> {
-        move |body: &[u8]| {
-            let (_, out) = match object_type {
-                RawObjectType::Commit => all_consuming(Commit::parser(id))
-                    .map(Object::Commit)
-                    .parse(body)?,
-                RawObjectType::Tag => all_consuming(Tag::parser(id))
-                    .map(Object::Tag)
-                    .parse(body)?,
-                RawObjectType::Tree => all_consuming(Tree::parser(id))
-                    .map(Object::Tree)
-                    .parse(body)?,
-                RawObjectType::Blob => (
-                    &[][..],
-                    Object::Blob(Blob {
-                        id,
-                        data: body.to_vec(),
-                    }),
-                ),
-            };
-            Ok((&[][..], out))
+    pub async fn peel_to_tree<D: Directory>(self, repo: &Repo<D>) -> GResult<Option<PeeledTree>> {
+        match self.body {
+            ObjectBody::Tree(t) => Ok(Some(PeeledTree {
+                id: self.id,
+                fields: t,
+            })),
+            ObjectBody::Commit(CommitFields {
+                tree: object_id, ..
+            }) => {
+                let object = Object::lookup(repo, object_id).await?;
+                object.peel_to_tree(repo).await
+            }
+            _ => Ok(None),
         }
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+impl ObjectBody {
+    fn parser<'a>(object_type: RawObjectType) -> impl Fn(&'a [u8]) -> ParseResult<&'a [u8], Self> {
+        move |body: &[u8]| {
+            let (_, body) = match object_type {
+                RawObjectType::Commit => all_consuming(CommitFields::parser)
+                    .map(ObjectBody::Commit)
+                    .parse(body)?,
+                RawObjectType::Tag => all_consuming(TagFields::parser)
+                    .map(ObjectBody::Tag)
+                    .parse(body)?,
+                RawObjectType::Tree => all_consuming(TreeFields::parser)
+                    .map(ObjectBody::Tree)
+                    .parse(body)?,
+                RawObjectType::Blob => (&[][..], ObjectBody::Blob(body.to_vec())),
+            };
+            Ok((&[][..], body))
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct ObjectHeader {
     #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
@@ -160,10 +199,9 @@ fn parse_object_headers(input: &[u8]) -> ParseResult<&[u8], Vec<ObjectHeader>> {
     Ok((rest, headers))
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct Commit {
-    pub id: ObjectId,
+pub struct CommitFields {
     #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
     pub author_name: Vec<u8>,
     #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
@@ -181,72 +219,69 @@ pub struct Commit {
     pub additional_headers: Vec<ObjectHeader>,
 }
 
-impl Commit {
-    fn parser<'a>(id: ObjectId) -> impl Fn(&'a [u8]) -> ParseResult<&'a [u8], Self> {
-        move |input| {
-            let (message, raw_headers) = parse_object_headers.parse(input)?;
-            let mut tree_id: Option<ObjectId> = None;
-            let mut parents: Vec<ObjectId> = Vec::new();
-            let mut author_name: Option<Vec<u8>> = None;
-            let mut author_email: Option<Vec<u8>> = None;
-            let mut author_date: Option<DateTime<FixedOffset>> = None;
-            let mut committer_name: Option<Vec<u8>> = None;
-            let mut committer_email: Option<Vec<u8>> = None;
-            let mut commit_date: Option<DateTime<FixedOffset>> = None;
-            let mut additional_headers: Vec<ObjectHeader> = Vec::new();
-            for ObjectHeader { name, value } in raw_headers {
-                match name.as_slice() {
-                    b"tree" => {
-                        let (_, object_id) = all_consuming(ObjectId::parse).parse(&value)?;
-                        tree_id = Some(object_id);
-                    }
-                    b"parent" => {
-                        let (_, object_id) = all_consuming(ObjectId::parse).parse(&value)?;
-                        parents.push(object_id);
-                    }
-                    b"author" => {
-                        let (_, (name, email, date)) =
-                            all_consuming(parse_author_committer_tagger).parse(&value)?;
-                        author_name = Some(name.to_vec());
-                        author_email = Some(email.to_vec());
-                        author_date = Some(date);
-                    }
-                    b"committer" => {
-                        let (_, (name, email, date)) =
-                            all_consuming(parse_author_committer_tagger).parse(&value)?;
-                        committer_name = Some(name.to_vec());
-                        committer_email = Some(email.to_vec());
-                        commit_date = Some(date);
-                    }
-                    _ => {
-                        additional_headers.push(ObjectHeader { name, value });
-                    }
+impl CommitFields {
+    fn parser<'a>(input: &[u8]) -> ParseResult<&'a [u8], Self> {
+        let (message, raw_headers) = parse_object_headers.parse(input)?;
+        let mut tree_id: Option<ObjectId> = None;
+        let mut parents: Vec<ObjectId> = Vec::new();
+        let mut author_name: Option<Vec<u8>> = None;
+        let mut author_email: Option<Vec<u8>> = None;
+        let mut author_date: Option<DateTime<FixedOffset>> = None;
+        let mut committer_name: Option<Vec<u8>> = None;
+        let mut committer_email: Option<Vec<u8>> = None;
+        let mut commit_date: Option<DateTime<FixedOffset>> = None;
+        let mut additional_headers: Vec<ObjectHeader> = Vec::new();
+        for ObjectHeader { name, value } in raw_headers {
+            match name.as_slice() {
+                b"tree" => {
+                    let (_, object_id) = all_consuming(ObjectId::parse).parse(&value)?;
+                    tree_id = Some(object_id);
+                }
+                b"parent" => {
+                    let (_, object_id) = all_consuming(ObjectId::parse).parse(&value)?;
+                    parents.push(object_id);
+                }
+                b"author" => {
+                    let (_, (name, email, date)) =
+                        all_consuming(parse_author_committer_tagger).parse(&value)?;
+                    author_name = Some(name.to_vec());
+                    author_email = Some(email.to_vec());
+                    author_date = Some(date);
+                }
+                b"committer" => {
+                    let (_, (name, email, date)) =
+                        all_consuming(parse_author_committer_tagger).parse(&value)?;
+                    committer_name = Some(name.to_vec());
+                    committer_email = Some(email.to_vec());
+                    commit_date = Some(date);
+                }
+                _ => {
+                    additional_headers.push(ObjectHeader { name, value });
                 }
             }
-            let f = move || -> Option<Commit> {
-                Some(Commit {
-                    id,
-                    author_name: Option::map(author_name, Vec::from)?,
-                    author_email: Option::map(author_email, Vec::from)?,
-                    author_date: author_date?,
-                    committer_name: Option::map(committer_name, Vec::from)?,
-                    committer_email: Option::map(committer_email, Vec::from)?,
-                    commit_date: commit_date?,
-                    tree: tree_id?,
-                    parents,
-                    message: message.to_vec(),
-                    additional_headers,
-                })
-            };
-            match f() {
-                None => Err(nom::Err::Failure(ParseError::MissingFields)),
-                Some(commit) => Ok((&[][..], commit)),
-            }
+        }
+        let f = move || -> Option<CommitFields> {
+            Some(CommitFields {
+                author_name: Option::map(author_name, Vec::from)?,
+                author_email: Option::map(author_email, Vec::from)?,
+                author_date: author_date?,
+                committer_name: Option::map(committer_name, Vec::from)?,
+                committer_email: Option::map(committer_email, Vec::from)?,
+                commit_date: commit_date?,
+                tree: tree_id?,
+                parents,
+                message: message.to_vec(),
+                additional_headers,
+            })
+        };
+        match f() {
+            None => Err(nom::Err::Failure(ParseError::MissingFields)),
+            Some(commit) => Ok((&[][..], commit)),
         }
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum TagType {
     Commit,
@@ -255,10 +290,9 @@ pub enum TagType {
     Tag,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct Tag {
-    pub id: ObjectId,
+pub struct TagFields {
     pub object: ObjectId,
     pub tag_type: TagType,
     #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
@@ -272,40 +306,37 @@ pub struct Tag {
     pub message: Vec<u8>,
 }
 
-impl Tag {
-    fn parser<'a>(id: ObjectId) -> impl Fn(&'a [u8]) -> ParseResult<&'a [u8], Self> {
-        move |input| {
-            let mut p = (
-                delimited(tag("object "), ObjectId::parse, newline),
-                delimited(
-                    tag("type "),
-                    alt((
-                        tag("commit").map(|_| TagType::Commit),
-                        tag("blob").map(|_| TagType::Blob),
-                        tag("tree").map(|_| TagType::Tree),
-                        tag("tag").map(|_| TagType::Tag),
-                    )),
-                    newline,
-                ),
-                delimited(tag("tag "), take_till(|c| c == b'\n'), newline),
-                delimited(tag("tagger "), parse_author_committer_tagger, tag("\n\n")),
-            );
-            let (message, (object, tag_type, tag, (tagger_name, tagger_email, tag_date))) =
-                p.parse(input)?;
-            Ok((
-                &[][..],
-                Tag {
-                    id,
-                    object,
-                    tag_type,
-                    tag: tag.to_vec(),
-                    tagger_name: tagger_name.to_vec(),
-                    tagger_email: tagger_email.to_vec(),
-                    tag_date,
-                    message: message.to_vec(),
-                },
-            ))
-        }
+impl TagFields {
+    fn parser(input: &[u8]) -> ParseResult<&[u8], Self> {
+        let mut p = (
+            delimited(tag("object "), ObjectId::parse, newline),
+            delimited(
+                tag("type "),
+                alt((
+                    tag("commit").map(|_| TagType::Commit),
+                    tag("blob").map(|_| TagType::Blob),
+                    tag("tree").map(|_| TagType::Tree),
+                    tag("tag").map(|_| TagType::Tag),
+                )),
+                newline,
+            ),
+            delimited(tag("tag "), take_till(|c| c == b'\n'), newline),
+            delimited(tag("tagger "), parse_author_committer_tagger, tag("\n\n")),
+        );
+        let (message, (object, tag_type, tag, (tagger_name, tagger_email, tag_date))) =
+            p.parse(input)?;
+        Ok((
+            &[][..],
+            TagFields {
+                object,
+                tag_type,
+                tag: tag.to_vec(),
+                tagger_name: tagger_name.to_vec(),
+                tagger_email: tagger_email.to_vec(),
+                tag_date,
+                message: message.to_vec(),
+            },
+        ))
     }
 }
 
@@ -332,7 +363,7 @@ fn parse_author_committer_tagger(
         .parse(input)
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum TreeEntryType {
     File,
@@ -342,7 +373,7 @@ pub enum TreeEntryType {
     Commit,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct TreeEntry {
     #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
@@ -351,10 +382,9 @@ pub struct TreeEntry {
     pub id: ObjectId,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct Tree {
-    pub id: ObjectId,
+pub struct TreeFields {
     pub entries: Vec<TreeEntry>,
 }
 
@@ -384,20 +414,17 @@ impl TreeEntry {
     }
 }
 
-impl Tree {
-    fn parser<'a>(id: ObjectId) -> impl Fn(&'a [u8]) -> ParseResult<&'a [u8], Self> {
-        move |input| {
-            many(0.., TreeEntry::parser)
-                .map(|entries| Tree { id, entries })
-                .parse(input)
-        }
+impl TreeFields {
+    fn parser(input: &[u8]) -> ParseResult<&[u8], Self> {
+        many(0.., TreeEntry::parser)
+            .map(|entries| TreeFields { entries })
+            .parse(input)
     }
 }
 
 #[derive(Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct Blob {
-    pub id: ObjectId,
+pub struct BlobFields {
     #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
     pub data: Vec<u8>,
 }
@@ -419,14 +446,8 @@ mod tests {
 
         let repo = test_repo.repo();
         let object = block_on(Object::lookup(&repo, commit_id)).unwrap();
-        match object {
-            Object::Commit(commit) => {
-                assert_eq!(commit.id, commit_id);
-            }
-            Object::Tag(_) => panic!(),
-            Object::Tree(_) => panic!(),
-            Object::Blob(_) => panic!(),
-        }
+        assert_eq!(object.id, commit_id);
+        assert!(matches!(object.body, ObjectBody::Commit(_)));
     }
 
     #[test]
@@ -436,13 +457,13 @@ mod tests {
         test_repo.run_git(["gc"]).unwrap();
         let repo = test_repo.repo();
         let head = block_on(repo.head()).unwrap();
-        let commit = match block_on(head.resolve_to_object(&repo)).unwrap() {
-            Object::Commit(commit) => commit,
+        let commit = match block_on(head.resolve_to_object(&repo)).unwrap().body {
+            ObjectBody::Commit(commit) => commit,
             _ => panic!(),
         };
         let tree_id = commit.tree;
-        let tree = match block_on(Object::lookup(&repo, tree_id)).unwrap() {
-            Object::Tree(tree) => tree,
+        let tree = match block_on(Object::lookup(&repo, tree_id)).unwrap().body {
+            ObjectBody::Tree(tree) => tree,
             _ => panic!(),
         };
         assert_eq!(tree.entries.len(), 1 + 26 - 2);
@@ -456,12 +477,12 @@ committer another-user <another-email-address> 1774735019 -0800
 
 a commit
 ";
-        let (rest, object) = Object::parser(ObjectId([0u8; 20]), RawObjectType::Commit)
+        let (rest, body) = ObjectBody::parser(RawObjectType::Commit)
             .parse(data)
             .unwrap();
         assert_eq!(rest, &[]);
-        let commit = match object {
-            Object::Commit(commit) => commit,
+        let commit = match body {
+            ObjectBody::Commit(commit) => commit,
             _ => panic!(),
         };
         assert_eq!(&commit.parents, &[]);
@@ -502,11 +523,11 @@ committer a-user <an-email-address> 1774739676 +0000
 
 another commit
 ";
-        let (_, object) = Object::parser(ObjectId([0u8; 20]), RawObjectType::Commit)
+        let (_, body) = ObjectBody::parser(RawObjectType::Commit)
             .parse(data)
             .unwrap();
-        let commit = match object {
-            Object::Commit(commit) => commit,
+        let commit = match body {
+            ObjectBody::Commit(commit) => commit,
             _ => panic!(),
         };
         assert_eq!(
@@ -525,11 +546,11 @@ committer a-user <an-email-address> 1774740069 +0000
 
 Merge branch 'branch'
 ";
-        let (_, object) = Object::parser(ObjectId([0u8; 20]), RawObjectType::Commit)
+        let (_, body) = ObjectBody::parser(RawObjectType::Commit)
             .parse(data)
             .unwrap();
-        let commit = match object {
-            Object::Commit(commit) => commit,
+        let commit = match body {
+            ObjectBody::Commit(commit) => commit,
             _ => panic!(),
         };
         assert_eq!(commit.parents.len(), 2);
@@ -550,11 +571,9 @@ tagger a-user <an-email-address> 1774822895 +0100
 
 a message
 ";
-        let (_, object) = Object::parser(ObjectId([0u8; 20]), RawObjectType::Tag)
-            .parse(data)
-            .unwrap();
-        let tag = match object {
-            Object::Tag(tag) => tag,
+        let (_, body) = ObjectBody::parser(RawObjectType::Tag).parse(data).unwrap();
+        let tag = match body {
+            ObjectBody::Tag(tag) => tag,
             _ => panic!(),
         };
         assert_eq!(
@@ -581,11 +600,9 @@ tagger a-user <an-email-address> 1774826002 +0100
 
 a blob
 ";
-        let (_, object) = Object::parser(ObjectId([0u8; 20]), RawObjectType::Tag)
-            .parse(data)
-            .unwrap();
-        let tag = match object {
-            Object::Tag(tag) => tag,
+        let (_, fields) = ObjectBody::parser(RawObjectType::Tag).parse(data).unwrap();
+        let tag = match fields {
+            ObjectBody::Tag(tag) => tag,
             _ => panic!(),
         };
         assert_eq!(tag.tag_type, TagType::Blob);
@@ -600,11 +617,9 @@ tagger a-user <an-email-address> 1774826187 +0100
 
 a tree
 ";
-        let (_, object) = Object::parser(ObjectId([0u8; 20]), RawObjectType::Tag)
-            .parse(data)
-            .unwrap();
-        let tag = match object {
-            Object::Tag(tag) => tag,
+        let (_, fields) = ObjectBody::parser(RawObjectType::Tag).parse(data).unwrap();
+        let tag = match fields {
+            ObjectBody::Tag(tag) => tag,
             _ => panic!(),
         };
         assert_eq!(tag.tag_type, TagType::Tree);
@@ -619,11 +634,9 @@ tagger a-user <an-email-address> 1774826312 +0100
 
 a tag
 ";
-        let (_, object) = Object::parser(ObjectId([0u8; 20]), RawObjectType::Tag)
-            .parse(data)
-            .unwrap();
-        let tag = match object {
-            Object::Tag(tag) => tag,
+        let (_, fields) = ObjectBody::parser(RawObjectType::Tag).parse(data).unwrap();
+        let tag = match fields {
+            ObjectBody::Tag(tag) => tag,
             _ => panic!(),
         };
         assert_eq!(tag.tag_type, TagType::Tag);
@@ -642,11 +655,11 @@ a tag
         data.extend_from_slice(&hex!("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"));
         data.extend_from_slice(b"160000 a-commit\0");
         data.extend_from_slice(&hex!("91ca81cfccb6f88a34807e9810bb0be409f32d70"));
-        let (_, object) = Object::parser(ObjectId([0u8; 20]), RawObjectType::Tree)
+        let (_, fields) = ObjectBody::parser(RawObjectType::Tree)
             .parse(&data)
             .unwrap();
-        let tree = match object {
-            Object::Tree(tree) => tree,
+        let tree = match fields {
+            ObjectBody::Tree(tree) => tree,
             _ => panic!(),
         };
         let expected_entries = [
@@ -684,27 +697,27 @@ a tag
     #[test]
     fn parse_empty_blob() {
         let input = b"";
-        let (_, object) = Object::parser(ObjectId([0; 20]), RawObjectType::Blob)
+        let (_, fields) = ObjectBody::parser(RawObjectType::Blob)
             .parse(input)
             .unwrap();
-        let object = match object {
-            Object::Blob(blob) => blob,
+        let blob = match fields {
+            ObjectBody::Blob(blob) => blob,
             _ => panic!(),
         };
-        assert_eq!(object.data, &[]);
+        assert_eq!(blob, &[]);
     }
 
     #[test]
     fn parse_contentful_blob() {
         let input = b"hello world";
-        let (_, object) = Object::parser(ObjectId([0; 20]), RawObjectType::Blob)
+        let (_, fields) = ObjectBody::parser(RawObjectType::Blob)
             .parse(input)
             .unwrap();
-        let object = match object {
-            Object::Blob(blob) => blob,
+        let blob = match fields {
+            ObjectBody::Blob(blob) => blob,
             _ => panic!(),
         };
-        assert_eq!(object.data, b"hello world");
+        assert_eq!(blob, b"hello world");
     }
 
     #[test]
@@ -719,11 +732,11 @@ some-other-header a long line-wrapped
 
 the commit message
 ";
-        let (_, object) = Object::parser(ObjectId([0u8; 20]), RawObjectType::Commit)
+        let (_, fields) = ObjectBody::parser(RawObjectType::Commit)
             .parse(data)
             .unwrap();
-        let commit = match object {
-            Object::Commit(commit) => commit,
+        let commit = match fields {
+            ObjectBody::Commit(commit) => commit,
             _ => panic!(),
         };
         assert_eq!(commit.additional_headers.len(), 2);

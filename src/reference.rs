@@ -168,7 +168,7 @@ async fn lookup_loose_ref<D: Directory>(repo: &Repo<D>, name: &RefName) -> GResu
 #[cfg(test)]
 mod test {
     use crate::{
-        object::{Object, ObjectId},
+        object::{ObjectBody, ObjectId},
         test::helpers::{make_basic_repo, make_packfile_repo},
     };
     use core::matches;
@@ -196,7 +196,7 @@ mod test {
         let repo = test_repo.repo();
         let head = block_on(repo.head()).unwrap();
         let object = block_on(head.resolve_to_object(&repo)).unwrap();
-        assert!(matches!(object, Object::Commit(_)));
+        assert!(matches!(object.body, ObjectBody::Commit(_)));
     }
 
     #[test]
@@ -222,7 +222,7 @@ mod test {
         let repo = test_repo.repo();
         let main = Ref::Symbolic(RefName::Branch("main".as_bytes().to_vec()));
         let object = block_on(main.resolve_to_object(&repo)).unwrap();
-        assert!(matches!(object, Object::Commit(_)));
+        assert!(matches!(object.body, ObjectBody::Commit(_)));
     }
 
     #[test]
@@ -231,6 +231,6 @@ mod test {
         let repo = test_repo.repo();
         let main = Ref::Symbolic(RefName::Tag("a-fat-tag".as_bytes().to_vec()));
         let object = block_on(main.resolve_to_object(&repo)).unwrap();
-        assert!(matches!(object, Object::Tag(_)));
+        assert!(matches!(object.body, ObjectBody::Tag(_)));
     }
 }
