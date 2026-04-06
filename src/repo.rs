@@ -1,7 +1,7 @@
 use crate::{
-    directory::{Directory, File, search_for_files},
+    directory::{Directory, DirectoryError, File, search_for_files},
     error::{Error, GResult},
-    reference::{Ref, RefName},
+    reference::{Ref, RefName, read_packed_refs},
 };
 use alloc::vec::Vec;
 
@@ -15,10 +15,18 @@ impl<D: Directory> Repo<D> {
     }
 
     pub async fn refs(&self) -> GResult<Vec<RefName>> {
-        let refs_dir = self.git_dir.open_subdir(b"refs").await?;
-        let refs_paths = search_for_files(&refs_dir).await?;
         let mut out: Vec<RefName> = Vec::new();
         out.push(RefName::Head);
+        match self.git_dir.open_file(b"packed-refs").await {
+            Err(DirectoryError::NotFound(_)) => {}
+            Err(e) => return Err(e.into()),
+            Ok(mut packed_refs_file) => {
+                let packed_refs = read_packed_refs(&mut packed_refs_file).await?;
+                out.extend(packed_refs.into_iter().map(|(_id, name)| name));
+            }
+        }
+        let refs_dir = self.git_dir.open_subdir(b"refs").await?;
+        let refs_paths = search_for_files(&refs_dir).await?;
         for path in refs_paths {
             let (prefix, rest) = path.split_at(1);
             if let Some(prefix) = prefix.first() {

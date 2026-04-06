@@ -122,7 +122,9 @@ impl Ref {
     }
 }
 
-async fn read_packed_refs<F: File>(packed_refs_file: &mut F) -> GResult<Vec<(ObjectId, RefName)>> {
+pub(crate) async fn read_packed_refs<F: File>(
+    packed_refs_file: &mut F,
+) -> GResult<Vec<(ObjectId, RefName)>> {
     let packed_refs_data = packed_refs_file.read_all().await?;
     let parse_one_ref = terminated(
         (
@@ -134,6 +136,8 @@ async fn read_packed_refs<F: File>(packed_refs_file: &mut F) -> GResult<Vec<(Obj
                         .map(|name: &[u8]| RefName::Branch(name.to_vec())),
                     preceded(tag("tags/"), not_line_ending)
                         .map(|name: &[u8]| RefName::Tag(name.to_vec())),
+                    preceded(tag("remotes/"), not_line_ending)
+                        .map(|name: &[u8]| RefName::Remote(name.to_vec())),
                 )),
                 newline,
             ),
@@ -142,7 +146,7 @@ async fn read_packed_refs<F: File>(packed_refs_file: &mut F) -> GResult<Vec<(Obj
     )
     .map(Some);
     let parse_comment = (space0, char('#'), not_line_ending, opt(newline)).map(|_| None);
-    let mut parser = many0(alt((parse_one_ref, parse_comment)));
+    let mut parser = all_consuming(many0(alt((parse_one_ref, parse_comment))));
     let (_, refs) = parser
         .parse(packed_refs_data.as_ref())
         .map_err(|_| Error::MalformedPackedRefs)?;
