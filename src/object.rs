@@ -442,19 +442,25 @@ pub enum TreeEntryType {
     Commit,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Accessors)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct TreeEntry {
+    #[access(get(ty(&[u8])))]
     #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
-    pub name: Vec<u8>,
-    pub entry_type: TreeEntryType,
-    pub id: ObjectId,
+    name: Vec<u8>,
+
+    #[access(get(cp))]
+    entry_type: TreeEntryType,
+
+    #[access(get(cp))]
+    id: ObjectId,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Accessors)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct TreeFields {
-    pub entries: Vec<TreeEntry>,
+    #[access(get(ty(&[TreeEntry])))]
+    entries: Vec<TreeEntry>,
 }
 
 impl TreeEntry {
@@ -491,11 +497,12 @@ impl TreeFields {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Accessors)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct BlobFields {
+    #[access(get(ty(&[u8])))]
     #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
-    pub data: Vec<u8>,
+    data: Vec<u8>,
 }
 
 #[cfg(test)]
