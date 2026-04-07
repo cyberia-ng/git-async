@@ -13,7 +13,7 @@ impl Serialize for ObjectId {
         let mut chars = [0u8; 40];
         hex::encode_to_slice(self.0, &mut chars).unwrap();
         let encoded = str::from_utf8(&chars).unwrap();
-        serializer.serialize_str(&encoded)
+        serializer.serialize_str(encoded)
     }
 }
 
@@ -44,8 +44,8 @@ pub(crate) mod utf8 {
     use alloc::vec::Vec;
     use serde::ser::Error;
 
-    pub fn serialize<S: Serializer>(bytes: &Vec<u8>, serializer: S) -> Result<S::Ok, S::Error> {
-        let utf8 = str::from_utf8(&bytes).map_err(|_| S::Error::custom("invalid UTF-8 string"))?;
+    pub fn serialize<S: Serializer>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error> {
+        let utf8 = str::from_utf8(bytes).map_err(|_| S::Error::custom("invalid UTF-8 string"))?;
         serializer.serialize_str(utf8)
     }
 
