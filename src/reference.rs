@@ -81,7 +81,7 @@ pub struct Ref<'r, D> {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "serde", serde(tag = "type", content = "value"))]
 pub enum RefType {
     Direct(ObjectId),

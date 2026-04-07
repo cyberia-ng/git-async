@@ -17,7 +17,7 @@ impl Serialize for ObjectId {
     }
 }
 
-struct ObjectIdVisitor {}
+struct ObjectIdVisitor;
 impl<'de> Visitor<'de> for ObjectIdVisitor {
     type Value = ObjectId;
 
@@ -35,7 +35,7 @@ impl<'de> Deserialize<'de> for ObjectId {
     where
         D: Deserializer<'de>,
     {
-        deserializer.deserialize_str(ObjectIdVisitor {})
+        deserializer.deserialize_str(ObjectIdVisitor)
     }
 }
 

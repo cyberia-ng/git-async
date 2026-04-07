@@ -20,7 +20,7 @@ use nom::{
 };
 
 #[cfg(feature = "serde")]
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct ObjectId(pub [u8; 20]);
@@ -73,7 +73,7 @@ pub struct Object<'r, D> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "serde", serde(tag = "type"))]
 pub enum ObjectBody {
     Commit(CommitFields),
@@ -83,14 +83,14 @@ pub enum ObjectBody {
 }
 
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct PeeledCommit {
     pub id: ObjectId,
     pub fields: CommitFields,
 }
 
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct PeeledTree {
     pub id: ObjectId,
     pub fields: TreeFields,
@@ -171,7 +171,7 @@ impl ObjectBody {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Accessors)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct ObjectHeader {
     #[access(get(ty(&[u8])))]
     #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
@@ -211,7 +211,7 @@ fn parse_object_headers(input: &[u8]) -> ParseResult<&[u8], Vec<ObjectHeader>> {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Accessors)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct CommitFields {
     #[access(get(cp))]
     tree: ObjectId,
@@ -312,7 +312,7 @@ impl CommitFields {
 }
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum TagType {
     Commit,
     Blob,
@@ -321,7 +321,7 @@ pub enum TagType {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Accessors)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct TagFields {
     #[access(get(cp))]
     object: ObjectId,
@@ -433,7 +433,7 @@ fn parse_author_committer_tagger(
 }
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum TreeEntryType {
     File,
     Executable,
@@ -443,7 +443,7 @@ pub enum TreeEntryType {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Accessors)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct TreeEntry {
     #[access(get(ty(&[u8])))]
     #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
@@ -457,7 +457,7 @@ pub struct TreeEntry {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Accessors)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct TreeFields {
     #[access(get(ty(&[TreeEntry])))]
     entries: Vec<TreeEntry>,
@@ -498,7 +498,7 @@ impl TreeFields {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Accessors)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct BlobFields {
     #[access(get(ty(&[u8])))]
     #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
