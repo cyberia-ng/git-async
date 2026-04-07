@@ -292,11 +292,11 @@ impl CommitFields {
         }
         let f = move || -> Option<CommitFields> {
             Some(CommitFields {
-                author_name: Option::map(author_name, Vec::from)?,
-                author_email: Option::map(author_email, Vec::from)?,
+                author_name: author_name?,
+                author_email: author_email?,
                 author_date: author_date?,
-                committer_name: Option::map(committer_name, Vec::from)?,
-                committer_email: Option::map(committer_email, Vec::from)?,
+                committer_name: committer_name?,
+                committer_email: committer_email?,
                 commit_date: commit_date?,
                 tree: tree_id?,
                 parents,
@@ -320,53 +320,92 @@ pub enum TagType {
     Tag,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Accessors)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct TagFields {
-    pub object: ObjectId,
-    pub tag_type: TagType,
+    #[access(get(cp))]
+    object: ObjectId,
+
+    #[access(get(cp))]
+    tag_type: TagType,
+
+    #[access(get(ty(&[u8])))]
     #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
-    pub tag: Vec<u8>,
+    tag: Vec<u8>,
+
+    #[access(get(ty(&[u8])))]
     #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
-    pub tagger_name: Vec<u8>,
+    tagger_name: Vec<u8>,
+
+    #[access(get(ty(&[u8])))]
     #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
-    pub tagger_email: Vec<u8>,
-    pub tag_date: DateTime<FixedOffset>,
+    tagger_email: Vec<u8>,
+
+    #[access(get(cp))]
+    tag_date: DateTime<FixedOffset>,
+
+    #[access(get(ty(&[u8])))]
     #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
-    pub message: Vec<u8>,
+    message: Vec<u8>,
+
+    #[access(get(ty(&[ObjectHeader])))]
+    additional_headers: Vec<ObjectHeader>
 }
 
 impl TagFields {
     fn parser(input: &[u8]) -> ParseResult<&[u8], Self> {
-        let mut p = (
-            delimited(tag("object "), ObjectId::parse, newline),
-            delimited(
-                tag("type "),
-                alt((
-                    tag("commit").map(|_| TagType::Commit),
-                    tag("blob").map(|_| TagType::Blob),
-                    tag("tree").map(|_| TagType::Tree),
-                    tag("tag").map(|_| TagType::Tag),
-                )),
-                newline,
-            ),
-            delimited(tag("tag "), take_till(|c| c == b'\n'), newline),
-            delimited(tag("tagger "), parse_author_committer_tagger, tag("\n\n")),
-        );
-        let (message, (object, tag_type, tag, (tagger_name, tagger_email, tag_date))) =
-            p.parse(input)?;
-        Ok((
-            &[][..],
-            TagFields {
-                object,
-                tag_type,
-                tag: tag.to_vec(),
-                tagger_name: tagger_name.to_vec(),
-                tagger_email: tagger_email.to_vec(),
-                tag_date,
+        let (message, raw_headers) = parse_object_headers.parse(input)?;
+        let mut object: Option<ObjectId> = None;
+        let mut tag_type: Option<TagType> = None;
+        let mut tag: Option<Vec<u8>> = None;
+        let mut tagger_name: Option<Vec<u8>> = None;
+        let mut tagger_email: Option<Vec<u8>> = None;
+        let mut tag_date: Option<DateTime<FixedOffset>> = None;
+        let mut additional_headers = Vec::new();
+        for ObjectHeader { name, value } in raw_headers {
+            match name.as_slice() {
+                b"object" => {
+                    let (_, object_id) = all_consuming(ObjectId::parse).parse(&value)?;
+                    object = Some(object_id)
+                }
+                b"type" => {
+                    tag_type = match value.as_slice() {
+                        b"commit" => Some(TagType::Commit),
+                        b"blob" => Some(TagType::Blob),
+                        b"tree" => Some(TagType::Tree),
+                        b"tag" => Some(TagType::Tag),
+                        _ => None,
+                    };
+                }
+                b"tag" => tag = Some(value),
+                b"tagger" => {
+                    let (_, (name, email, date)) =
+                        all_consuming(parse_author_committer_tagger).parse(&value)?;
+                    tagger_name = Some(name.to_vec());
+                    tagger_email = Some(email.to_vec());
+                    tag_date = Some(date);
+                }
+                _ => {
+                    additional_headers.push(ObjectHeader {name, value});
+                }
+            }
+        }
+        let f = move || -> Option<TagFields> {
+            Some(TagFields {
+                object: object?,
+                tag_type: tag_type?,
+                tag: tag?,
+                tagger_name: tagger_name?,
+                tagger_email: tagger_email?,
+                tag_date: tag_date?,
                 message: message.to_vec(),
-            },
-        ))
+                additional_headers,
+            })
+        };
+        match f() {
+            None => Err(nom::Err::Failure(ParseError::MissingFields)),
+            Some(tag) => Ok((&[][..], tag))
+        }
     }
 }
 
