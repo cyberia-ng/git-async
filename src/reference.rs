@@ -1,7 +1,7 @@
 use crate::{
     directory::{Directory, DirectoryError, File},
     error::{Error, GResult},
-    object::{Object, ObjectId},
+    object::{ObjectId},
     parsing::ParseResult,
     repo::Repo,
 };
@@ -113,16 +113,15 @@ impl<'r, D: Directory> Ref<'r, D> {
         })
     }
 
-    pub async fn peel_to_object(&self) -> GResult<Object<'r, D>> {
+    pub async fn resolve_object_id(&self) -> GResult<ObjectId> {
         let mut target = self.clone();
         while let RefType::Symbolic(name) = target.ref_type {
             target = self.repo.lookup_ref(&name).await?
         }
-        let oid = match target.ref_type {
+        match target.ref_type {
             RefType::Symbolic(_) => unreachable!(),
-            RefType::Direct(oid) => oid,
-        };
-        Object::lookup(self.repo, oid).await
+            RefType::Direct(oid) => Ok(oid),
+        }
     }
 }
 
@@ -219,15 +218,6 @@ mod test {
     }
 
     #[test]
-    fn resolve_head_to_commit() {
-        let test_repo = make_basic_repo().unwrap();
-        let repo = test_repo.repo();
-        let head = block_on(repo.head()).unwrap();
-        let object = block_on(head.peel_to_object()).unwrap();
-        assert!(matches!(object.body(), ObjectBody::Commit(_)));
-    }
-
-    #[test]
     fn parse_direct_ref() {
         let content = b"6121d0b97779278fcc32cc8a02754e7c588d9c18\n";
         let (_, parsed) = RefType::parse_loose_ref(content).unwrap();
@@ -248,9 +238,10 @@ mod test {
     fn read_thin_packed_ref() {
         let test_repo = make_packfile_repo().unwrap();
         let repo = test_repo.repo();
-        let main = RefName::Branch(b"main".to_vec());
-        let main = block_on(repo.lookup_ref(&main)).unwrap();
-        let object = block_on(main.peel_to_object()).unwrap();
+        let ref_name = RefName::Branch(b"main".to_vec());
+        let reference = block_on(repo.lookup_ref(&ref_name)).unwrap();
+        let oid = block_on(reference.resolve_object_id()).unwrap();
+        let object = block_on(repo.lookup_object(oid)).unwrap();
         assert!(matches!(object.body(), ObjectBody::Commit(_)));
     }
 
@@ -258,9 +249,10 @@ mod test {
     fn read_fat_packed_ref() {
         let test_repo = make_packfile_repo().unwrap();
         let repo = test_repo.repo();
-        let tag = RefName::Tag(b"a-fat-tag".to_vec());
-        let tag = block_on(repo.lookup_ref(&tag)).unwrap();
-        let object = block_on(tag.peel_to_object()).unwrap();
+        let ref_name = RefName::Tag(b"a-fat-tag".to_vec());
+        let reference = block_on(repo.lookup_ref(&ref_name)).unwrap();
+        let oid = block_on(reference.resolve_object_id()).unwrap();
+        let object = block_on(repo.lookup_object(oid)).unwrap();
         assert!(matches!(object.body(), ObjectBody::Tag(_)));
     }
 }

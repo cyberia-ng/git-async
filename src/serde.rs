@@ -54,7 +54,7 @@ pub(crate) mod utf8 {
         type Value = Vec<u8>;
 
         fn expecting(&self, formatter: &mut alloc::fmt::Formatter) -> alloc::fmt::Result {
-            write!(formatter, "a Vec<u8>")
+            write!(formatter, "a string")
         }
 
         fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
@@ -67,5 +67,24 @@ pub(crate) mod utf8 {
 
     pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<u8>, D::Error> {
         deserializer.deserialize_str(Utf8Visitor)
+    }
+}
+
+pub(crate) mod option_utf8 {
+    use super::*;
+    use alloc::vec::Vec;
+    use serde::ser::Error;
+
+    pub fn serialize<S: Serializer>(
+        bytes: &Option<Vec<u8>>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        if let Some(bytes) = bytes {
+            let utf8 =
+                str::from_utf8(bytes).map_err(|_| S::Error::custom("invalid UTF-8 string"))?;
+            serializer.serialize_some(utf8)
+        } else {
+            serializer.serialize_none()
+        }
     }
 }

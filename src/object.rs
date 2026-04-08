@@ -119,7 +119,7 @@ impl<'r, D: Directory> Object<'r, D> {
                 fields: c,
             })),
             ObjectBody::Tag(TagFields {
-                object: object_id, ..
+                target: object_id, ..
             }) => {
                 let object = Object::lookup(self.repo, object_id).await?;
                 object.peel_to_commit().await
@@ -324,32 +324,32 @@ pub enum TagType {
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct TagFields {
     #[access(get(cp))]
-    object: ObjectId,
+    target: ObjectId,
 
     #[access(get(cp))]
     tag_type: TagType,
 
     #[access(get(ty(&[u8])))]
     #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
-    tag: Vec<u8>,
+    name: Vec<u8>,
 
-    #[access(get(ty(&[u8])))]
-    #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
-    tagger_name: Vec<u8>,
+    #[access(get(as_ref, ty(Option<&Vec<u8>>)))]
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde::option_utf8"))]
+    tagger_name: Option<Vec<u8>>,
 
-    #[access(get(ty(&[u8])))]
-    #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
-    tagger_email: Vec<u8>,
+    #[access(get(as_ref, ty(Option<&Vec<u8>>)))]
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde::option_utf8"))]
+    tagger_email: Option<Vec<u8>>,
 
     #[access(get(cp))]
-    tag_date: DateTime<FixedOffset>,
+    tag_date: Option<DateTime<FixedOffset>>,
 
     #[access(get(ty(&[u8])))]
     #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
     message: Vec<u8>,
 
     #[access(get(ty(&[ObjectHeader])))]
-    additional_headers: Vec<ObjectHeader>
+    additional_headers: Vec<ObjectHeader>,
 }
 
 impl TagFields {
@@ -386,25 +386,25 @@ impl TagFields {
                     tag_date = Some(date);
                 }
                 _ => {
-                    additional_headers.push(ObjectHeader {name, value});
+                    additional_headers.push(ObjectHeader { name, value });
                 }
             }
         }
         let f = move || -> Option<TagFields> {
             Some(TagFields {
-                object: object?,
+                target: object?,
                 tag_type: tag_type?,
-                tag: tag?,
-                tagger_name: tagger_name?,
-                tagger_email: tagger_email?,
-                tag_date: tag_date?,
+                name: tag?,
+                tagger_name: tagger_name,
+                tagger_email: tagger_email,
+                tag_date: tag_date,
                 message: message.to_vec(),
                 additional_headers,
             })
         };
         match f() {
             None => Err(nom::Err::Failure(ParseError::MissingFields)),
-            Some(tag) => Ok((&[][..], tag))
+            Some(tag) => Ok((&[][..], tag)),
         }
     }
 }
@@ -653,11 +653,11 @@ a message
             _ => panic!(),
         };
         assert_eq!(
-            tag.object,
+            tag.target,
             ObjectId(hex!("eedeffb6da16ddc3fb61b2255a8259cacc045691"),)
         );
         assert_eq!(tag.tag_type, TagType::Commit);
-        assert_eq!(tag.tag, b"annotated-tag");
+        assert_eq!(tag.name, b"annotated-tag");
         assert_eq!(tag.tagger_name, b"a-user");
         assert_eq!(tag.tagger_email, b"an-email-address");
         assert_eq!(
