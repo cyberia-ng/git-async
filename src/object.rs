@@ -533,7 +533,8 @@ mod tests {
         test_repo.run_git(["gc"]).unwrap();
         let repo = test_repo.repo();
         let head = block_on(repo.head()).unwrap();
-        let commit = match block_on(head.peel_to_object()).unwrap().body {
+        let oid = block_on(head.resolve_object_id()).unwrap();
+        let commit = match block_on(repo.lookup_object(oid)).unwrap().body {
             ObjectBody::Commit(commit) => commit,
             _ => panic!(),
         };
@@ -658,11 +659,14 @@ a message
         );
         assert_eq!(tag.tag_type, TagType::Commit);
         assert_eq!(tag.name, b"annotated-tag");
-        assert_eq!(tag.tagger_name, b"a-user");
-        assert_eq!(tag.tagger_email, b"an-email-address");
+        assert_eq!(tag.tagger_name.as_deref(), Some(b"a-user".as_slice()));
+        assert_eq!(
+            tag.tagger_email.as_deref(),
+            Some(b"an-email-address".as_slice())
+        );
         assert_eq!(
             tag.tag_date,
-            DateTime::parse_from_rfc3339("2026-03-29T23:21:35+01:00").unwrap()
+            Some(DateTime::parse_from_rfc3339("2026-03-29T23:21:35+01:00").unwrap())
         );
         assert_eq!(&tag.message, b"a message\n");
     }
