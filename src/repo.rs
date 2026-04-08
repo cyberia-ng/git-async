@@ -4,6 +4,7 @@ use crate::{
     object::{Object, ObjectId},
     reference::{Ref, RefName, read_packed_refs},
 };
+use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
 
 pub struct Repo<D> {
@@ -15,15 +16,17 @@ impl<D: Directory> Repo<D> {
         Repo { git_dir }
     }
 
-    pub async fn ref_names(&self) -> GResult<Vec<RefName>> {
-        let mut out: Vec<RefName> = Vec::new();
-        out.push(RefName::Head);
+    pub async fn ref_names(&self) -> GResult<BTreeSet<RefName>> {
+        let mut out: BTreeSet<RefName> = BTreeSet::new();
+        out.insert(RefName::Head);
         match self.git_dir.open_file(b"packed-refs").await {
             Err(DirectoryError::NotFound(_)) => {}
             Err(e) => return Err(e.into()),
             Ok(mut packed_refs_file) => {
                 let packed_refs = read_packed_refs(&mut packed_refs_file).await?;
-                out.extend(packed_refs.into_iter().map(|(_id, name)| name));
+                for (_, ref_name) in packed_refs {
+                    out.insert(ref_name);
+                }
             }
         }
         let refs_dir = self.git_dir.open_subdir(b"refs").await?;
@@ -40,13 +43,13 @@ impl<D: Directory> Repo<D> {
                 }
                 match prefix.as_slice() {
                     b"heads" => {
-                        out.push(RefName::Branch(name));
+                        out.insert(RefName::Branch(name));
                     }
                     b"tags" => {
-                        out.push(RefName::Tag(name));
+                        out.insert(RefName::Tag(name));
                     }
                     b"remotes" => {
-                        out.push(RefName::Remote(name));
+                        out.insert(RefName::Remote(name));
                     }
                     _ => {}
                 }
@@ -104,9 +107,8 @@ mod tests {
             .unwrap();
 
         let repo = test_repo.repo();
-        let mut refs = block_on(repo.ref_names()).unwrap();
-        refs.sort();
-        let mut expected = vec![
+        let refs = block_on(repo.ref_names()).unwrap();
+        let expected: BTreeSet<_> = vec![
             RefName::Head,
             RefName::Branch(b"main".to_vec()),
             RefName::Branch(b"a-branch".to_vec()),
@@ -116,8 +118,9 @@ mod tests {
             RefName::Tag(b"fat-tag".to_vec()),
             RefName::Tag(b"a-fat-tag".to_vec()),
             RefName::Remote(b"origin/main".to_vec()),
-        ];
-        expected.sort();
+        ]
+        .into_iter()
+        .collect();
         assert_eq!(&refs, &expected);
     }
 }
