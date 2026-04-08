@@ -2,19 +2,21 @@ use crate::test::repo::TestRepo;
 use std::{
     fs::{self, OpenOptions, read_dir, remove_file},
     io::{self, Write},
+    os::unix::ffi::OsStrExt,
 };
 
 pub fn make_file(repo: &TestRepo, file_name: &str) -> io::Result<fs::File> {
-    OpenOptions::new()
+    let mut f = OpenOptions::new()
         .write(true)
         .create_new(true)
-        .open(repo.location.path().join(file_name))
+        .open(repo.location.path().join(file_name))?;
+    f.flush()?;
+    Ok(f)
 }
 
 pub fn make_basic_repo() -> io::Result<TestRepo> {
     let repo = TestRepo::new()?;
-    let mut f = make_file(&repo, "a-file")?;
-    f.flush()?;
+    make_file(&repo, "a-file")?;
     repo.run_git(["add", "--all"])?;
     repo.commit(
         "a commit",
@@ -30,6 +32,9 @@ pub fn make_basic_repo() -> io::Result<TestRepo> {
         "an-email-address",
         "2000-01-01T00:00:00Z",
     )?;
+    make_file(&repo, "another-file")?;
+    repo.run_git(["add", "--all"])?;
+    repo.run_git(["stash"])?;
     Ok(repo)
 }
 
@@ -50,6 +55,46 @@ pub fn make_packfile_repo() -> io::Result<TestRepo> {
     let mut tags_entries = read_dir(repo.location.path().join(".git").join("refs").join("tags"))?;
     assert!(tags_entries.next().is_none());
     Ok(repo)
+}
+
+pub fn get_pack_id(repo: &TestRepo) -> io::Result<Vec<u8>> {
+    let pack_dir_entries = read_dir(
+        repo.location
+            .path()
+            .join(".git")
+            .join("objects")
+            .join("pack"),
+    )?
+    .collect::<Result<Vec<_>, _>>()?;
+    let mut pack_ids = pack_dir_entries
+        .iter()
+        .filter_map(|entry| {
+            entry
+                .file_name()
+                .as_bytes()
+                .strip_prefix(b"pack-")
+                .map(|s| s.strip_suffix(b".idx"))
+                .flatten()
+                .map(|s| s.to_vec())
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(pack_ids.len(), 1);
+
+    let pack_id = pack_ids.pop().unwrap();
+    let idx_file_expected_path = repo
+        .location
+        .path()
+        .join(".git")
+        .join("objects")
+        .join("pack")
+        .join(format!("pack-{}.idx", str::from_utf8(&pack_id).unwrap()));
+    assert!(
+        OpenOptions::new()
+            .read(true)
+            .open(idx_file_expected_path)
+            .is_ok()
+    );
+    Ok(pack_id)
 }
 
 pub fn make_similar_commits(test_repo: &TestRepo) -> io::Result<()> {

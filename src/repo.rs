@@ -32,28 +32,14 @@ impl<D: Directory> Repo<D> {
         let refs_dir = self.git_dir.open_subdir(b"refs").await?;
         let refs_paths = search_for_files(&refs_dir).await?;
         for path in refs_paths {
-            let (prefix, rest) = path.split_at(1);
-            if let Some(prefix) = prefix.first() {
-                let mut name: Vec<u8> = Vec::new();
-                for component in rest {
-                    if !name.is_empty() {
-                        name.push(b'/');
-                    }
-                    name.extend_from_slice(component);
+            let mut name: Vec<u8> = Vec::new();
+            for component in path {
+                if !name.is_empty() {
+                    name.push(b'/');
                 }
-                match prefix.as_slice() {
-                    b"heads" => {
-                        out.insert(RefName::Branch(name));
-                    }
-                    b"tags" => {
-                        out.insert(RefName::Tag(name));
-                    }
-                    b"remotes" => {
-                        out.insert(RefName::Remote(name));
-                    }
-                    _ => {}
-                }
+                name.extend_from_slice(&component);
             }
+            out.insert(RefName::Ref(name));
         }
         Ok(out)
     }
@@ -75,9 +61,13 @@ impl<D: Directory> Repo<D> {
 mod tests {
     use crate::{
         reference::RefType,
-        test::{helpers::make_basic_repo, repo::TestRepo},
+        test::{
+            helpers::make_basic_repo,
+            repo::{TestDirectory, TestRepo},
+        },
     };
     use futures::executor::block_on;
+    use std::path::PathBuf;
 
     use super::*;
 
@@ -88,7 +78,7 @@ mod tests {
         let head = block_on(repo.head()).unwrap();
         assert_eq!(
             head.ref_type(),
-            &RefType::Symbolic(RefName::Branch(Vec::from(b"main")))
+            &RefType::Symbolic(RefName::Ref(Vec::from(b"heads/main")))
         );
     }
 
@@ -110,14 +100,14 @@ mod tests {
         let refs = block_on(repo.ref_names()).unwrap();
         let expected: BTreeSet<_> = vec![
             RefName::Head,
-            RefName::Branch(b"main".to_vec()),
-            RefName::Branch(b"a-branch".to_vec()),
-            RefName::Branch(b"foo/a-branch".to_vec()),
-            RefName::Tag(b"thin-tag".to_vec()),
-            RefName::Tag(b"bar/thin-tag".to_vec()),
-            RefName::Tag(b"fat-tag".to_vec()),
-            RefName::Tag(b"a-fat-tag".to_vec()),
-            RefName::Remote(b"origin/main".to_vec()),
+            RefName::Ref(b"heads/main".to_vec()),
+            RefName::Ref(b"heads/a-branch".to_vec()),
+            RefName::Ref(b"heads/foo/a-branch".to_vec()),
+            RefName::Ref(b"tags/thin-tag".to_vec()),
+            RefName::Ref(b"tags/bar/thin-tag".to_vec()),
+            RefName::Ref(b"tags/fat-tag".to_vec()),
+            RefName::Ref(b"tags/a-fat-tag".to_vec()),
+            RefName::Ref(b"remotes/origin/main".to_vec()),
         ]
         .into_iter()
         .collect();

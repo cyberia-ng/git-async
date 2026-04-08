@@ -308,7 +308,11 @@ pub(crate) fn reconstruct_deltified_object_from_chain(
 
 #[cfg(test)]
 mod tests {
-    use crate::test::helpers::{make_basic_repo, make_packfile_repo, make_similar_commits};
+    use crate::{
+        ObjectId,
+        object_store::index::find_object,
+        test::helpers::{make_basic_repo, make_packfile_repo, make_similar_commits},
+    };
     use futures::executor::block_on;
     use hex_literal::hex;
 
@@ -317,10 +321,14 @@ mod tests {
     #[test]
     fn read_non_deltified_commit() {
         let test_repo = make_packfile_repo().unwrap();
-        let mut pack_file = test_repo
-            .pack_file(b"220ae2051dba7a9606c35293e9ff1493ff59869f")
-            .unwrap();
-        let pack_object = block_on(read_pack_object(&mut pack_file, 0x0c)).unwrap();
+        let pack_location = block_on(find_object(
+            &test_repo.repo(),
+            ObjectId::from_hex(b"78dc5b70bd81aa46ec7dfce87a69826e354a916b").unwrap(),
+        ))
+        .unwrap()
+        .unwrap();
+        let mut pack_file = test_repo.pack_file(&pack_location.pack_id).unwrap();
+        let pack_object = block_on(read_pack_object(&mut pack_file, pack_location.offset)).unwrap();
         assert_eq!(
             pack_object.object_type,
             PackObjectType::Base(RawObjectType::Commit)
@@ -337,10 +345,14 @@ a commit
     #[test]
     fn read_non_deltified_blob() {
         let test_repo = make_packfile_repo().unwrap();
-        let mut pack_file = test_repo
-            .pack_file(b"220ae2051dba7a9606c35293e9ff1493ff59869f")
-            .unwrap();
-        let pack_object = block_on(read_pack_object(&mut pack_file, 0x11e)).unwrap();
+        let pack_location = block_on(find_object(
+            &test_repo.repo(),
+            ObjectId::from_hex(b"e69de29bb2d1d6434b8b29ae775ad8c2e48c5391").unwrap(),
+        ))
+        .unwrap()
+        .unwrap();
+        let mut pack_file = test_repo.pack_file(&pack_location.pack_id).unwrap();
+        let pack_object = block_on(read_pack_object(&mut pack_file, pack_location.offset)).unwrap();
         assert_eq!(
             pack_object.object_type,
             PackObjectType::Base(RawObjectType::Blob)
@@ -351,10 +363,14 @@ a commit
     #[test]
     fn read_non_deltified_tree() {
         let test_repo = make_packfile_repo().unwrap();
-        let mut pack_file = test_repo
-            .pack_file(b"220ae2051dba7a9606c35293e9ff1493ff59869f")
-            .unwrap();
-        let pack_object = block_on(read_pack_object(&mut pack_file, 0xf1)).unwrap();
+        let pack_location = block_on(find_object(
+            &test_repo.repo(),
+            ObjectId::from_hex(b"3a4df67dd7fd7cb3ca82d9896dbdd28053d39bdb").unwrap(),
+        ))
+        .unwrap()
+        .unwrap();
+        let mut pack_file = test_repo.pack_file(&pack_location.pack_id).unwrap();
+        let pack_object = block_on(read_pack_object(&mut pack_file, pack_location.offset)).unwrap();
         assert_eq!(
             pack_object.object_type,
             PackObjectType::Base(RawObjectType::Tree)
@@ -368,10 +384,14 @@ a commit
     #[test]
     fn read_non_deltified_tag() {
         let test_repo = make_packfile_repo().unwrap();
-        let mut pack_file = test_repo
-            .pack_file(b"220ae2051dba7a9606c35293e9ff1493ff59869f")
-            .unwrap();
-        let pack_object = block_on(read_pack_object(&mut pack_file, 0x7a)).unwrap();
+        let pack_location = block_on(find_object(
+            &test_repo.repo(),
+            ObjectId::from_hex(b"fbb9ae04dfa95dc527c1e6dde722f9048c5262ef").unwrap(),
+        ))
+        .unwrap()
+        .unwrap();
+        let mut pack_file = test_repo.pack_file(&pack_location.pack_id).unwrap();
+        let pack_object = block_on(read_pack_object(&mut pack_file, pack_location.offset)).unwrap();
         assert_eq!(
             pack_object.object_type,
             PackObjectType::Base(RawObjectType::Tag)
@@ -393,10 +413,14 @@ a tag
         let test_repo = make_basic_repo().unwrap();
         make_similar_commits(&test_repo).unwrap();
         test_repo.run_git(["gc"]).unwrap();
-        let mut pack_file = test_repo
-            .pack_file(b"9a21071e8cb13ec8f89907ff140f8e8c20e978c1")
-            .unwrap();
-        let pack_object = block_on(read_pack_object(&mut pack_file, 786)).unwrap();
+        let pack_location = block_on(find_object(
+            &test_repo.repo(),
+            ObjectId::from_hex(b"7ee3a2eb0ff69340e8a1c962a5b573de1cb9b1f6").unwrap(),
+        ))
+        .unwrap()
+        .unwrap();
+        let mut pack_file = test_repo.pack_file(&pack_location.pack_id).unwrap();
+        let pack_object = block_on(read_pack_object(&mut pack_file, pack_location.offset)).unwrap();
         assert_eq!(
             pack_object.object_type,
             PackObjectType::OffsetDelta {
@@ -414,10 +438,15 @@ a tag
         let test_repo = make_basic_repo().unwrap();
         make_similar_commits(&test_repo).unwrap();
         test_repo.run_git(["gc"]).unwrap();
-        let mut pack_file = test_repo
-            .pack_file(b"9a21071e8cb13ec8f89907ff140f8e8c20e978c1")
-            .unwrap();
-        let (chain, final_object) = block_on(form_deltified_chain(&mut pack_file, 809)).unwrap();
+        let pack_location = block_on(find_object(
+            &test_repo.repo(),
+            ObjectId::from_hex(b"9cded1c631096bb2caf71e1f2e0765bf6420d040").unwrap(),
+        ))
+        .unwrap()
+        .unwrap();
+        let mut pack_file = test_repo.pack_file(&pack_location.pack_id).unwrap();
+        let (chain, final_object) =
+            block_on(form_deltified_chain(&mut pack_file, pack_location.offset)).unwrap();
         assert_eq!(chain.len(), 2);
         for object in chain {
             assert!(matches!(
@@ -484,10 +513,15 @@ a tag
         let test_repo = make_basic_repo().unwrap();
         make_similar_commits(&test_repo).unwrap();
         test_repo.run_git(["gc"]).unwrap();
-        let mut pack_file = test_repo
-            .pack_file(b"9a21071e8cb13ec8f89907ff140f8e8c20e978c1")
-            .unwrap();
-        let (chain, final_object) = block_on(form_deltified_chain(&mut pack_file, 809)).unwrap();
+        let pack_location = block_on(find_object(
+            &test_repo.repo(),
+            ObjectId::from_hex(b"9cded1c631096bb2caf71e1f2e0765bf6420d040").unwrap(),
+        ))
+        .unwrap()
+        .unwrap();
+        let mut pack_file = test_repo.pack_file(&pack_location.pack_id).unwrap();
+        let (chain, final_object) =
+            block_on(form_deltified_chain(&mut pack_file, pack_location.offset)).unwrap();
         let object = reconstruct_deltified_object_from_chain(&chain, &final_object);
         assert_eq!(
             object.object_type,

@@ -27,16 +27,19 @@ pub(crate) async fn lookup<D: Directory>(
     } else {
         return Ok(None);
     };
-    let mut pack_file = repo
+    let mut pack_file_name = b"pack-".to_vec();
+    pack_file_name.extend_from_slice(&pack_file_location.pack_id);
+    pack_file_name.extend_from_slice(b".pack");
+    let mut pack_id = repo
         .git_dir
         .open_subdir(b"objects")
         .await?
         .open_subdir(b"pack")
         .await?
-        .open_file(&pack_file_location.pack_file_name)
+        .open_file(&pack_file_name)
         .await?;
     let (chain, final_object) =
-        form_deltified_chain(&mut pack_file, pack_file_location.offset).await?;
+        form_deltified_chain(&mut pack_id, pack_file_location.offset).await?;
     let PackObject { object_type, body } =
         reconstruct_deltified_object_from_chain(&chain, &final_object);
     match object_type {

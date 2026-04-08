@@ -1,7 +1,7 @@
 use crate::{
     directory::{Directory, DirectoryError, File},
     error::{Error, GResult},
-    object::{ObjectId},
+    object::ObjectId,
     parsing::ParseResult,
     repo::Repo,
 };
@@ -25,29 +25,22 @@ use serde::{Deserialize, Serialize};
 #[cfg_attr(feature = "serde", serde(tag = "type", content = "value"))]
 pub enum RefName {
     Head,
-    Branch(#[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))] Vec<u8>),
-    Tag(#[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))] Vec<u8>),
-    Remote(#[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))] Vec<u8>),
+    Ref(#[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))] Vec<u8>),
 }
 
 impl RefName {
-    pub(crate) async fn open_file<D: Directory>(&self, repo: &Repo<D>) -> GResult<Option<D::File>> {
+    pub(crate) async fn open_loose_ref<D: Directory>(
+        &self,
+        repo: &Repo<D>,
+    ) -> GResult<Option<D::File>> {
         use RefName::*;
         let sub_path = match self {
             Head => {
                 return Ok(Some(repo.git_dir.open_file(b"HEAD").await?));
             }
-            Branch(sub_path) => sub_path,
-            Tag(sub_path) => sub_path,
-            Remote(sub_path) => sub_path,
+            Ref(path) => path,
         };
         let mut dir = repo.git_dir.open_subdir(b"refs").await?;
-        dir = match self {
-            Branch(_) => dir.open_subdir(b"heads").await?,
-            Tag(_) => dir.open_subdir(b"tags").await?,
-            Remote(_) => dir.open_subdir(b"remotes").await?,
-            Head => unreachable!(),
-        };
         let mut components = sub_path.split(|b| *b == b'/');
         let file_name = components
             .next_back()
@@ -132,14 +125,8 @@ impl RefType {
                 ObjectId::parse.map(RefType::Direct),
                 preceded(
                     tag("ref: refs/"),
-                    alt((
-                        preceded(tag("heads/"), take_till(|_| false))
-                            .map(|name: &[u8]| RefType::Symbolic(RefName::Branch(name.to_vec()))),
-                        preceded(tag("tags/"), take_till(|_| false))
-                            .map(|name: &[u8]| RefType::Symbolic(RefName::Tag(name.to_vec()))),
-                        preceded(tag("remotes/"), take_till(|_| false))
-                            .map(|name: &[u8]| RefType::Symbolic(RefName::Remote(name.to_vec()))),
-                    )),
+                    take_till(|_| false)
+                        .map(|name: &[u8]| RefType::Symbolic(RefName::Ref(name.to_vec()))),
                 ),
             )))
             .parse(content)
@@ -155,14 +142,7 @@ pub(crate) async fn read_packed_refs<F: File>(
             terminated(ObjectId::parse, char(' ')),
             delimited(
                 tag("refs/"),
-                alt((
-                    preceded(tag("heads/"), not_line_ending)
-                        .map(|name: &[u8]| RefName::Branch(name.to_vec())),
-                    preceded(tag("tags/"), not_line_ending)
-                        .map(|name: &[u8]| RefName::Tag(name.to_vec())),
-                    preceded(tag("remotes/"), not_line_ending)
-                        .map(|name: &[u8]| RefName::Remote(name.to_vec())),
-                )),
+                not_line_ending.map(|name: &[u8]| RefName::Ref(name.to_vec())),
                 newline,
             ),
         ),
@@ -181,7 +161,7 @@ pub(crate) async fn lookup_loose_ref<D: Directory>(
     repo: &Repo<D>,
     name: &RefName,
 ) -> GResult<Option<RefType>> {
-    let mut ref_file = if let Some(file) = name.open_file(repo).await? {
+    let mut ref_file = if let Some(file) = name.open_loose_ref(repo).await? {
         file
     } else {
         return Ok(None);
@@ -231,14 +211,17 @@ mod test {
     fn parse_symbolic_ref() {
         let content = b"ref: refs/heads/main\n";
         let (_, parsed) = RefType::parse_loose_ref(content).unwrap();
-        assert_eq!(parsed, RefType::Symbolic(RefName::Branch(b"main".to_vec())));
+        assert_eq!(
+            parsed,
+            RefType::Symbolic(RefName::Ref(b"heads/main".to_vec()))
+        );
     }
 
     #[test]
     fn read_thin_packed_ref() {
         let test_repo = make_packfile_repo().unwrap();
         let repo = test_repo.repo();
-        let ref_name = RefName::Branch(b"main".to_vec());
+        let ref_name = RefName::Ref(b"heads/main".to_vec());
         let reference = block_on(repo.lookup_ref(&ref_name)).unwrap();
         let oid = block_on(reference.resolve_object_id()).unwrap();
         let object = block_on(repo.lookup_object(oid)).unwrap();
@@ -249,10 +232,13 @@ mod test {
     fn read_fat_packed_ref() {
         let test_repo = make_packfile_repo().unwrap();
         let repo = test_repo.repo();
-        let ref_name = RefName::Tag(b"a-fat-tag".to_vec());
+        let ref_name = RefName::Ref(b"tags/a-fat-tag".to_vec());
         let reference = block_on(repo.lookup_ref(&ref_name)).unwrap();
         let oid = block_on(reference.resolve_object_id()).unwrap();
         let object = block_on(repo.lookup_object(oid)).unwrap();
         assert!(matches!(object.body(), ObjectBody::Tag(_)));
     }
+
+    #[test]
+    fn read_stash_packed_ref() {}
 }

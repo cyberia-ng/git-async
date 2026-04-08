@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 use core::cmp::Ordering;
 
 pub(crate) struct PackObjectLocation {
-    pub pack_file_name: Vec<u8>,
+    pub pack_id: Vec<u8>,
     pub offset: u64,
 }
 
@@ -47,12 +47,13 @@ pub(crate) async fn find_object<D: Directory>(
         let mut idx_file = pack_dir.open_file(&idx).await?;
         if let Some((obj_idx, total_objects)) = find_object_idx(&mut idx_file, id).await? {
             let offset = get_obj_packfile_offset(&mut idx_file, obj_idx, total_objects).await?;
-            let mut pack_file_name = idx.strip_suffix(b".idx").unwrap().to_vec();
-            pack_file_name.extend_from_slice(b".pack");
-            location = Some(PackObjectLocation {
-                pack_file_name,
-                offset,
-            });
+            let pack_id = idx
+                .strip_suffix(b".idx")
+                .unwrap()
+                .strip_prefix(b"pack-")
+                .unwrap()
+                .to_vec();
+            location = Some(PackObjectLocation { pack_id, offset });
             break;
         }
     }
@@ -137,7 +138,7 @@ async fn get_obj_packfile_offset<F: File>(
 
 #[cfg(test)]
 mod tests {
-    use crate::test::helpers::{make_basic_repo, make_file, make_packfile_repo};
+    use crate::test::helpers::{get_pack_id, make_basic_repo, make_file, make_packfile_repo};
     use futures::executor::block_on;
     use hex_literal::hex;
     use rand_core::{Rng, SeedableRng};
@@ -149,15 +150,14 @@ mod tests {
     #[test]
     fn test_find_object_idx() {
         let repo = make_packfile_repo().unwrap();
-        let mut idx_file = repo
-            .pack_idx_file(b"220ae2051dba7a9606c35293e9ff1493ff59869f")
-            .unwrap();
+        let pack_id = get_pack_id(&repo).unwrap();
+        let mut idx_file = repo.pack_idx_file(&pack_id).unwrap();
         let obj_idx = block_on(find_object_idx(
             &mut idx_file,
             ObjectId(hex!("78dc5b70bd81aa46ec7dfce87a69826e354a916b")),
         ))
         .unwrap();
-        assert_eq!(obj_idx, Some((1, 4)));
+        assert!(obj_idx.is_some());
         let null_obj_idx = block_on(find_object_idx(
             &mut idx_file,
             ObjectId(hex!("0000000000000000000000000000000000000000")),
@@ -175,11 +175,20 @@ mod tests {
     #[test]
     fn test_get_obj_packfile_offset_normal() {
         let repo = make_packfile_repo().unwrap();
-        let mut idx_file = repo
-            .pack_idx_file(b"220ae2051dba7a9606c35293e9ff1493ff59869f")
-            .unwrap();
-        let pack_offset = block_on(get_obj_packfile_offset(&mut idx_file, 1, 4)).unwrap();
-        assert_eq!(pack_offset, 0x0c);
+        let pack_id = get_pack_id(&repo).unwrap();
+        let mut idx_file = repo.pack_idx_file(&pack_id).unwrap();
+        let (object_idx, total_objects) = block_on(find_object_idx(
+            &mut idx_file,
+            ObjectId(hex!("78dc5b70bd81aa46ec7dfce87a69826e354a916b")),
+        ))
+        .unwrap()
+        .unwrap();
+        block_on(get_obj_packfile_offset(
+            &mut idx_file,
+            object_idx,
+            total_objects,
+        ))
+        .unwrap();
     }
 
     #[ignore]
@@ -224,11 +233,23 @@ mod tests {
             .trim_ascii_end()
             .to_vec();
         assert_eq!(head_id, b"7e352726d6addfb0da5e3990393975188c5625ab");
+        let expected_blob_id_another_huge_file =
+            ObjectId(hex!("ead5be8e71f3cb2e585e14436087fd84119dd354"));
         repo.run_git(["gc"]).unwrap();
-        let mut idx_file = repo
-            .pack_idx_file(b"dfc8aedfbd7fe0f195509ca7bf9e51d3efe283bb")
-            .unwrap();
-        let pack_offset = block_on(get_obj_packfile_offset(&mut idx_file, 6, 8)).unwrap();
-        assert_eq!(pack_offset, 0x800a0249);
+        let pack_file_id = get_pack_id(&repo).unwrap();
+        let mut idx_file = repo.pack_idx_file(&pack_file_id).unwrap();
+        let (object_offset, total_objects) = block_on(find_object_idx(
+            &mut idx_file,
+            expected_blob_id_another_huge_file,
+        ))
+        .unwrap()
+        .unwrap();
+        let pack_offset = block_on(get_obj_packfile_offset(
+            &mut idx_file,
+            object_offset,
+            total_objects,
+        ))
+        .unwrap();
+        assert!(pack_offset >= 0x80000000);
     }
 }

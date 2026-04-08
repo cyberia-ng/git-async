@@ -80,7 +80,7 @@ pub(crate) async fn open_dir_path<D: Directory>(
 
 #[cfg(test)]
 mod tests {
-    use crate::test::repo::TestRepoDirectory;
+    use crate::test::repo::{TestDirectory, TestRepoDirectory};
 
     use super::*;
     use futures::executor::block_on;
@@ -118,7 +118,7 @@ mod tests {
         ];
         expected.sort();
         let dir = TestRepoDirectory {
-            root: Rc::new(dir),
+            root: TestDirectory::Temp(Rc::new(dir)),
             sub_path: PathBuf::new(),
         };
         let mut paths = block_on(search_for_files(&dir)).unwrap();

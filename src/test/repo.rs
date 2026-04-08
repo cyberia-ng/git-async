@@ -8,27 +8,47 @@ use std::{
     fs::{self, OpenOptions, metadata, read_dir},
     io::{self, Read, Seek, Write},
     os::unix::ffi::OsStrExt,
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Command, Stdio},
     rc::Rc,
 };
 use tempfile::{TempDir, tempdir};
 
+#[derive(Debug, Clone)]
+pub enum TestDirectory {
+    Temp(Rc<TempDir>),
+
+    // This is for debugging operations on real repos, the tests for which are
+    // not to be committed.
+    #[allow(dead_code)]
+    Real(PathBuf),
+}
+
+impl TestDirectory {
+    pub fn path(&self) -> &Path {
+        use TestDirectory::*;
+        match self {
+            Temp(d) => d.path(),
+            Real(d) => d.as_path(),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct TestRepo {
-    pub location: Rc<TempDir>,
+    pub location: TestDirectory,
 }
 
 #[derive(Debug, Clone)]
 pub struct TestRepoDirectory {
-    pub root: Rc<TempDir>,
+    pub root: TestDirectory,
     pub sub_path: PathBuf,
 }
 
 #[derive(Debug)]
 pub struct TestRepoFile {
     pub file: fs::File,
-    _dir: Rc<TempDir>,
+    _dir: TestDirectory,
 }
 
 impl TestRepo {
@@ -57,7 +77,7 @@ impl TestRepo {
     pub fn new() -> io::Result<Self> {
         let dir = tempdir()?;
         let repo = TestRepo {
-            location: Rc::new(dir),
+            location: TestDirectory::Temp(Rc::new(dir)),
         };
         repo.run_git(["init"])?;
         repo.set_user("a user", "an-email-address")?;
@@ -267,7 +287,7 @@ mod tests {
             .unwrap();
         f.write_all(&test_contents).unwrap();
         let dir = TestRepoDirectory {
-            root: Rc::new(dir),
+            root: TestDirectory::Temp(Rc::new(dir)),
             sub_path: PathBuf::new(),
         };
         let offset: usize = 700;
