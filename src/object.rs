@@ -1,7 +1,10 @@
 use crate::{
     directory::Directory,
-    error::{Error, GResult},
-    object_store::{RawObject, RawObjectType, lookup::lookup},
+    error::{Error, GResult, InternalObjectError, annotate_with_object_id},
+    object_store::{
+        ObjectType, RawObject,
+        lookup::{lookup, lookup_size_type},
+    },
     parsing::{ParseError, ParseResult},
     repo::Repo,
 };
@@ -108,8 +111,22 @@ impl<'r, D: Directory> Object<'r, D> {
 
         let (_, body) = ObjectBody::parser(object_type)
             .parse(body.as_ref())
-            .map_err(|_| Error::MalformedObject(id))?;
+            .map_err(|e| match e {
+                nom::Err::Incomplete(_) => unreachable!(),
+                nom::Err::Error(e) => InternalObjectError::from(e),
+                nom::Err::Failure(e) => InternalObjectError::from(e),
+            })
+            .map_err(annotate_with_object_id(id))?;
         Ok(Self { id, body, repo })
+    }
+
+    pub(crate) async fn lookup_size_type(
+        repo: &'r Repo<D>,
+        id: ObjectId,
+    ) -> GResult<(u64, ObjectType)> {
+        lookup_size_type(repo, id)
+            .await?
+            .ok_or_else(|| Error::MissingObject(id))
     }
 
     pub async fn peel_to_commit(self) -> GResult<Option<PeeledCommit>> {
@@ -146,19 +163,19 @@ impl<'r, D: Directory> Object<'r, D> {
 }
 
 impl ObjectBody {
-    fn parser<'a>(object_type: RawObjectType) -> impl Fn(&'a [u8]) -> ParseResult<&'a [u8], Self> {
+    fn parser<'a>(object_type: ObjectType) -> impl Fn(&'a [u8]) -> ParseResult<&'a [u8], Self> {
         move |body: &[u8]| {
             let (_, body) = match object_type {
-                RawObjectType::Commit => all_consuming(CommitFields::parser)
+                ObjectType::Commit => all_consuming(CommitFields::parser)
                     .map(ObjectBody::Commit)
                     .parse(body)?,
-                RawObjectType::Tag => all_consuming(TagFields::parser)
+                ObjectType::Tag => all_consuming(TagFields::parser)
                     .map(ObjectBody::Tag)
                     .parse(body)?,
-                RawObjectType::Tree => all_consuming(TreeFields::parser)
+                ObjectType::Tree => all_consuming(TreeFields::parser)
                     .map(ObjectBody::Tree)
                     .parse(body)?,
-                RawObjectType::Blob => (
+                ObjectType::Blob => (
                     &[][..],
                     ObjectBody::Blob(BlobFields {
                         data: body.to_vec(),
@@ -554,9 +571,7 @@ committer another-user <another-email-address> 1774735019 -0800
 
 a commit
 ";
-        let (rest, body) = ObjectBody::parser(RawObjectType::Commit)
-            .parse(data)
-            .unwrap();
+        let (rest, body) = ObjectBody::parser(ObjectType::Commit).parse(data).unwrap();
         assert_eq!(rest, &[]);
         let commit = match body {
             ObjectBody::Commit(commit) => commit,
@@ -600,9 +615,7 @@ committer a-user <an-email-address> 1774739676 +0000
 
 another commit
 ";
-        let (_, body) = ObjectBody::parser(RawObjectType::Commit)
-            .parse(data)
-            .unwrap();
+        let (_, body) = ObjectBody::parser(ObjectType::Commit).parse(data).unwrap();
         let commit = match body {
             ObjectBody::Commit(commit) => commit,
             _ => panic!(),
@@ -623,9 +636,7 @@ committer a-user <an-email-address> 1774740069 +0000
 
 Merge branch 'branch'
 ";
-        let (_, body) = ObjectBody::parser(RawObjectType::Commit)
-            .parse(data)
-            .unwrap();
+        let (_, body) = ObjectBody::parser(ObjectType::Commit).parse(data).unwrap();
         let commit = match body {
             ObjectBody::Commit(commit) => commit,
             _ => panic!(),
@@ -648,7 +659,7 @@ tagger a-user <an-email-address> 1774822895 +0100
 
 a message
 ";
-        let (_, body) = ObjectBody::parser(RawObjectType::Tag).parse(data).unwrap();
+        let (_, body) = ObjectBody::parser(ObjectType::Tag).parse(data).unwrap();
         let tag = match body {
             ObjectBody::Tag(tag) => tag,
             _ => panic!(),
@@ -680,7 +691,7 @@ tagger a-user <an-email-address> 1774826002 +0100
 
 a blob
 ";
-        let (_, fields) = ObjectBody::parser(RawObjectType::Tag).parse(data).unwrap();
+        let (_, fields) = ObjectBody::parser(ObjectType::Tag).parse(data).unwrap();
         let tag = match fields {
             ObjectBody::Tag(tag) => tag,
             _ => panic!(),
@@ -697,7 +708,7 @@ tagger a-user <an-email-address> 1774826187 +0100
 
 a tree
 ";
-        let (_, fields) = ObjectBody::parser(RawObjectType::Tag).parse(data).unwrap();
+        let (_, fields) = ObjectBody::parser(ObjectType::Tag).parse(data).unwrap();
         let tag = match fields {
             ObjectBody::Tag(tag) => tag,
             _ => panic!(),
@@ -714,7 +725,7 @@ tagger a-user <an-email-address> 1774826312 +0100
 
 a tag
 ";
-        let (_, fields) = ObjectBody::parser(RawObjectType::Tag).parse(data).unwrap();
+        let (_, fields) = ObjectBody::parser(ObjectType::Tag).parse(data).unwrap();
         let tag = match fields {
             ObjectBody::Tag(tag) => tag,
             _ => panic!(),
@@ -735,9 +746,7 @@ a tag
         data.extend_from_slice(&hex!("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"));
         data.extend_from_slice(b"160000 a-commit\0");
         data.extend_from_slice(&hex!("91ca81cfccb6f88a34807e9810bb0be409f32d70"));
-        let (_, fields) = ObjectBody::parser(RawObjectType::Tree)
-            .parse(&data)
-            .unwrap();
+        let (_, fields) = ObjectBody::parser(ObjectType::Tree).parse(&data).unwrap();
         let tree = match fields {
             ObjectBody::Tree(tree) => tree,
             _ => panic!(),
@@ -777,9 +786,7 @@ a tag
     #[test]
     fn parse_empty_blob() {
         let input = b"";
-        let (_, fields) = ObjectBody::parser(RawObjectType::Blob)
-            .parse(input)
-            .unwrap();
+        let (_, fields) = ObjectBody::parser(ObjectType::Blob).parse(input).unwrap();
         let blob = match fields {
             ObjectBody::Blob(blob) => blob,
             _ => panic!(),
@@ -790,9 +797,7 @@ a tag
     #[test]
     fn parse_contentful_blob() {
         let input = b"hello world";
-        let (_, fields) = ObjectBody::parser(RawObjectType::Blob)
-            .parse(input)
-            .unwrap();
+        let (_, fields) = ObjectBody::parser(ObjectType::Blob).parse(input).unwrap();
         let blob = match fields {
             ObjectBody::Blob(blob) => blob,
             _ => panic!(),
@@ -812,9 +817,7 @@ some-other-header a long line-wrapped
 
 the commit message
 ";
-        let (_, fields) = ObjectBody::parser(RawObjectType::Commit)
-            .parse(data)
-            .unwrap();
+        let (_, fields) = ObjectBody::parser(ObjectType::Commit).parse(data).unwrap();
         let commit = match fields {
             ObjectBody::Commit(commit) => commit,
             _ => panic!(),

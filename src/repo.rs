@@ -2,6 +2,7 @@ use crate::{
     directory::{Directory, DirectoryError, search_for_files},
     error::GResult,
     object::{Object, ObjectId},
+    object_store::ObjectType,
     reference::{Ref, RefName, read_packed_refs},
 };
 use alloc::collections::BTreeSet;
@@ -54,6 +55,10 @@ impl<D: Directory> Repo<D> {
 
     pub async fn lookup_object(&self, id: ObjectId) -> GResult<Object<'_, D>> {
         Object::lookup(self, id).await
+    }
+
+    pub async fn lookup_object_size_type(&self, id: ObjectId) -> GResult<(u64, ObjectType)> {
+        Object::lookup_size_type(self, id).await
     }
 }
 

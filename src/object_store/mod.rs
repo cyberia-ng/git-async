@@ -8,7 +8,7 @@ mod loose;
 mod pack;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub(crate) enum RawObjectType {
+pub enum ObjectType {
     Commit,
     Tag,
     Blob,
@@ -17,7 +17,7 @@ pub(crate) enum RawObjectType {
 
 #[derive(Debug)]
 pub(crate) struct RawObject {
-    pub object_type: RawObjectType,
+    pub object_type: ObjectType,
     pub id: ObjectId,
     pub body: Vec<u8>,
 }

@@ -1,7 +1,7 @@
 use crate::{
     directory::File,
-    error::{Error, GResult},
-    object_store::RawObjectType,
+    error::{Error, IResult, InternalObjectError},
+    object_store::ObjectType,
 };
 use alloc::boxed::Box;
 use alloc::vec;
@@ -20,7 +20,7 @@ use miniz_oxide::inflate::{
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub(crate) enum PackObjectType {
-    Base(RawObjectType),
+    Base(ObjectType),
     OffsetDelta {
         base_offset_neg: u64,
     },
@@ -31,14 +31,15 @@ pub(crate) enum PackObjectType {
 #[derive(Debug)]
 pub(crate) struct PackObject {
     pub object_type: PackObjectType,
-    pub body: Vec<u8>,
+    pub offset: u64,
+    pub size: u64,
 }
 
 // Git uses three slightly different algorithms for encoding variable-width
 // integers in different contexts within the packfile. This is not documented
 // anywhere.
 
-fn read_obj_type_size(buf: &[u8]) -> GResult<(usize, PackObjectType, u64)> {
+fn read_obj_type_size(buf: &[u8]) -> IResult<(usize, PackObjectType, u64)> {
     // This algorithm is for reading the first part of the packfile object
     // header, which encodes the object type and size.
     let mut pos: usize = 0;
@@ -50,13 +51,13 @@ fn read_obj_type_size(buf: &[u8]) -> GResult<(usize, PackObjectType, u64)> {
         if pos == 0 {
             let obj_type_id = 0b01110000 & *buf_byte;
             object_type = Some(match obj_type_id {
-                0b00010000 => PackObjectType::Base(RawObjectType::Commit),
-                0b00100000 => PackObjectType::Base(RawObjectType::Tree),
-                0b00110000 => PackObjectType::Base(RawObjectType::Blob),
-                0b01000000 => PackObjectType::Base(RawObjectType::Tag),
+                0b00010000 => PackObjectType::Base(ObjectType::Commit),
+                0b00100000 => PackObjectType::Base(ObjectType::Tree),
+                0b00110000 => PackObjectType::Base(ObjectType::Blob),
+                0b01000000 => PackObjectType::Base(ObjectType::Tag),
                 0b01100000 => PackObjectType::OffsetDelta { base_offset_neg: 0 },
                 0b01110000 => unimplemented!(), // TODO
-                _ => return Err(Error::MalformedPackObject),
+                _ => return Err(InternalObjectError::MalformedPackObject),
             });
             let size_bits = 0b00001111 & *buf_byte;
             obj_size = size_bits.into();
@@ -76,29 +77,29 @@ fn read_obj_type_size(buf: &[u8]) -> GResult<(usize, PackObjectType, u64)> {
     Ok((pos, object_type.unwrap(), obj_size))
 }
 
-fn read_delta_offset_size(buf: &[u8]) -> (usize, u64) {
+fn read_delta_offset(buf: &[u8]) -> (usize, u64) {
     // This algorithm is for reading the second part of the packfile object
     // header (in the case of an offset delta object), which encodes the
     // relative negative offset of the delta object's base object
     let mut bytes_read = 0;
-    let mut size = 0;
-    let mut done_accumulating_size = false;
+    let mut offset = 0;
+    let mut done_accumulating_offset = false;
     for (buf_idx, buf_byte) in buf.iter().enumerate() {
-        done_accumulating_size = (0b10000000 & *buf_byte) == 0;
+        done_accumulating_offset = (0b10000000 & *buf_byte) == 0;
         if buf_idx != 0 {
-            size += 1;
+            offset += 1;
         }
-        size <<= 7;
-        size += u64::from(buf_byte & 0b01111111);
+        offset <<= 7;
+        offset += u64::from(buf_byte & 0b01111111);
         bytes_read += 1;
-        if done_accumulating_size {
+        if done_accumulating_offset {
             break;
         }
     }
-    if !done_accumulating_size {
+    if !done_accumulating_offset {
         panic!("buffer was too short to hold varsize");
     }
-    (bytes_read, size)
+    (bytes_read, offset)
 }
 
 fn read_delta_expected_size(buf: &[u8]) -> (usize, u64) {
@@ -124,19 +125,19 @@ fn read_delta_expected_size(buf: &[u8]) -> (usize, u64) {
     (bytes_read, size)
 }
 
-async fn read_pack_object<F: File>(pack_file: &mut F, offset: u64) -> GResult<PackObject> {
+async fn read_pack_object_header<F: File>(pack_file: &mut F, offset: u64) -> IResult<PackObject> {
     let mut buf = [0u8; 4];
     pack_file.read_segment(0, &mut buf).await?;
     if buf != *b"PACK" {
-        return Err(Error::UnsupportedPackVersion);
+        return Err(Error::UnsupportedPackVersion.into());
     }
     pack_file.read_segment(4, &mut buf).await?;
     if buf != [0, 0, 0, 2] {
-        return Err(Error::UnsupportedPackVersion);
+        return Err(Error::UnsupportedPackVersion.into());
     }
 
-    // buf size must be enough to encode a u64::MAX in git's variable size
-    // encoding - i.e. at least 10 bytes
+    // buf size must be enough to encode a u64::MAX in one of git's variable
+    // size encodings - i.e. at least 10 bytes
     let mut buf = [0u8; 32];
     let mut pos: usize = 0;
     pack_file
@@ -144,7 +145,6 @@ async fn read_pack_object<F: File>(pack_file: &mut F, offset: u64) -> GResult<Pa
         .await?;
     let (bytes_read, mut object_type, obj_size) = read_obj_type_size(&buf)?;
     pos += bytes_read;
-    let obj_size = usize::try_from(obj_size).unwrap();
 
     if let PackObjectType::OffsetDelta {
         ref mut base_offset_neg,
@@ -153,19 +153,33 @@ async fn read_pack_object<F: File>(pack_file: &mut F, offset: u64) -> GResult<Pa
         pack_file
             .read_segment(offset + u64::try_from(pos).unwrap(), &mut buf)
             .await?;
-        let (bytes_read, size) = read_delta_offset_size(&buf);
-        *base_offset_neg = size;
+        let (bytes_read, offset) = read_delta_offset(&buf);
+        *base_offset_neg = offset;
         pos += bytes_read;
     }
 
+    Ok(PackObject {
+        object_type,
+        offset: offset + (pos as u64),
+        size: obj_size,
+    })
+}
+
+async fn read_pack_object_body<F: File>(
+    pack_file: &mut F,
+    object: &PackObject,
+) -> IResult<Vec<u8>> {
+    let object_size =
+        usize::try_from(object.size).map_err(|_| InternalObjectError::ObjectTooLarge)?;
+    let mut pos = 0;
     let mut compressed_body_buf = vec![0u8; 4096];
-    let mut body = vec![0u8; obj_size.next_power_of_two()];
+    let mut body = vec![0u8; object_size.next_power_of_two()];
     let mut state = Box::<DecompressorOxide>::default();
     let mut out_idx: usize = 0;
     loop {
         pack_file
             .read_segment(
-                offset + u64::try_from(pos).unwrap(),
+                object.offset + u64::try_from(pos).unwrap(),
                 &mut compressed_body_buf,
             )
             .await?;
@@ -188,23 +202,24 @@ async fn read_pack_object<F: File>(pack_file: &mut F, offset: u64) -> GResult<Pa
                 return Err(Error::DecompressError(DecompressError {
                     status,
                     output: Vec::new(),
-                }));
+                })
+                .into());
             }
         }
     }
-    body.truncate(obj_size);
-    Ok(PackObject { object_type, body })
+    body.truncate(object_size);
+    Ok(body)
 }
 
 pub(crate) async fn form_deltified_chain<F: File>(
     pack_file: &mut F,
     start_offset: u64,
-) -> GResult<(Vec<PackObject>, PackObject)> {
+) -> IResult<(Vec<PackObject>, PackObject)> {
     let mut chain = Vec::new();
     let mut final_pack_object: Option<PackObject> = None;
     let mut offset = start_offset;
     while final_pack_object.is_none() {
-        let object = read_pack_object(pack_file, offset).await?;
+        let object = read_pack_object_header(pack_file, offset).await?;
         match &object.object_type {
             PackObjectType::OffsetDelta { base_offset_neg } => {
                 offset -= base_offset_neg;
@@ -272,10 +287,11 @@ fn reconstruct_deltified_object(deltified: &[u8], base: &[u8]) -> Vec<u8> {
     reconstructed_body
 }
 
-pub(crate) fn reconstruct_deltified_object_from_chain(
+pub(crate) async fn reconstruct_deltified_object_from_chain<F: File>(
+    pack_file: &mut F,
     chain: &[PackObject],
     final_object: &PackObject,
-) -> PackObject {
+) -> IResult<(ObjectType, Vec<u8>)> {
     // TODO: when we implement ref deltas, this should take another parameter of the real base object
 
     debug_assert!(
@@ -287,6 +303,13 @@ pub(crate) fn reconstruct_deltified_object_from_chain(
         }),
         "chain contains offsets"
     );
+    let final_object_type = match final_object.object_type {
+        PackObjectType::OffsetDelta { base_offset_neg: _ } => {
+            panic!("Base object was a deltified object")
+        }
+        PackObjectType::RefDelta => todo!(),
+        PackObjectType::Base(type_) => type_,
+    };
     debug_assert!(
         match final_object.object_type {
             PackObjectType::OffsetDelta { base_offset_neg: _ } => false,
@@ -296,14 +319,12 @@ pub(crate) fn reconstruct_deltified_object_from_chain(
         "final object is base"
     );
     let chain_iter = chain.iter().rev();
-    let mut reconstructed_body = final_object.body.clone();
+    let mut reconstructed_body = read_pack_object_body(pack_file, final_object).await?;
     for pack_object in chain_iter {
-        reconstructed_body = reconstruct_deltified_object(&pack_object.body, &reconstructed_body);
+        let pack_object_body = read_pack_object_body(pack_file, pack_object).await?;
+        reconstructed_body = reconstruct_deltified_object(&pack_object_body, &reconstructed_body);
     }
-    PackObject {
-        object_type: final_object.object_type,
-        body: reconstructed_body,
-    }
+    Ok((final_object_type, reconstructed_body))
 }
 
 #[cfg(test)]
@@ -328,18 +349,23 @@ mod tests {
         .unwrap()
         .unwrap();
         let mut pack_file = test_repo.pack_file(&pack_location.pack_id).unwrap();
-        let pack_object = block_on(read_pack_object(&mut pack_file, pack_location.offset)).unwrap();
+        let pack_object = block_on(read_pack_object_header(
+            &mut pack_file,
+            pack_location.offset,
+        ))
+        .unwrap();
         assert_eq!(
             pack_object.object_type,
-            PackObjectType::Base(RawObjectType::Commit)
+            PackObjectType::Base(ObjectType::Commit)
         );
-        let expected = b"tree 3a4df67dd7fd7cb3ca82d9896dbdd28053d39bdb
+        let body = block_on(read_pack_object_body(&mut pack_file, &pack_object)).unwrap();
+        let expected_body = b"tree 3a4df67dd7fd7cb3ca82d9896dbdd28053d39bdb
 author a user <an-email-address> 946684800 +0000
 committer a user <an-email-address> 946684800 +0000
 
 a commit
 ";
-        assert_eq!(pack_object.body, expected);
+        assert_eq!(body, expected_body);
     }
 
     #[test]
@@ -352,12 +378,17 @@ a commit
         .unwrap()
         .unwrap();
         let mut pack_file = test_repo.pack_file(&pack_location.pack_id).unwrap();
-        let pack_object = block_on(read_pack_object(&mut pack_file, pack_location.offset)).unwrap();
+        let pack_object = block_on(read_pack_object_header(
+            &mut pack_file,
+            pack_location.offset,
+        ))
+        .unwrap();
         assert_eq!(
             pack_object.object_type,
-            PackObjectType::Base(RawObjectType::Blob)
+            PackObjectType::Base(ObjectType::Blob)
         );
-        assert_eq!(pack_object.body, b"");
+        let body = block_on(read_pack_object_body(&mut pack_file, &pack_object)).unwrap();
+        assert_eq!(body, b"");
     }
 
     #[test]
@@ -370,15 +401,20 @@ a commit
         .unwrap()
         .unwrap();
         let mut pack_file = test_repo.pack_file(&pack_location.pack_id).unwrap();
-        let pack_object = block_on(read_pack_object(&mut pack_file, pack_location.offset)).unwrap();
+        let pack_object = block_on(read_pack_object_header(
+            &mut pack_file,
+            pack_location.offset,
+        ))
+        .unwrap();
         assert_eq!(
             pack_object.object_type,
-            PackObjectType::Base(RawObjectType::Tree)
+            PackObjectType::Base(ObjectType::Tree)
         );
         let mut expected = Vec::new();
         expected.extend_from_slice(b"100644 a-file\0");
         expected.extend_from_slice(&hex!("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"));
-        assert_eq!(pack_object.body, expected);
+        let body = block_on(read_pack_object_body(&mut pack_file, &pack_object)).unwrap();
+        assert_eq!(body, expected);
     }
 
     #[test]
@@ -391,13 +427,18 @@ a commit
         .unwrap()
         .unwrap();
         let mut pack_file = test_repo.pack_file(&pack_location.pack_id).unwrap();
-        let pack_object = block_on(read_pack_object(&mut pack_file, pack_location.offset)).unwrap();
+        let pack_object = block_on(read_pack_object_header(
+            &mut pack_file,
+            pack_location.offset,
+        ))
+        .unwrap();
         assert_eq!(
             pack_object.object_type,
-            PackObjectType::Base(RawObjectType::Tag)
+            PackObjectType::Base(ObjectType::Tag)
         );
+        let body = block_on(read_pack_object_body(&mut pack_file, &pack_object)).unwrap();
         assert_eq!(
-            pack_object.body,
+            body,
             b"object 78dc5b70bd81aa46ec7dfce87a69826e354a916b
 type commit
 tag a-fat-tag
@@ -420,17 +461,19 @@ a tag
         .unwrap()
         .unwrap();
         let mut pack_file = test_repo.pack_file(&pack_location.pack_id).unwrap();
-        let pack_object = block_on(read_pack_object(&mut pack_file, pack_location.offset)).unwrap();
+        let pack_object = block_on(read_pack_object_header(
+            &mut pack_file,
+            pack_location.offset,
+        ))
+        .unwrap();
         assert_eq!(
             pack_object.object_type,
             PackObjectType::OffsetDelta {
                 base_offset_neg: 128
             }
         );
-        assert_eq!(
-            pack_object.body,
-            hex!("94 06 f7 05 b0 85 01 b3 a2 01 72 01")
-        );
+        let body = block_on(read_pack_object_body(&mut pack_file, &pack_object)).unwrap();
+        assert_eq!(body, hex!("94 06 f7 05 b0 85 01 b3 a2 01 72 01"));
     }
 
     #[test]
@@ -522,11 +565,13 @@ a tag
         let mut pack_file = test_repo.pack_file(&pack_location.pack_id).unwrap();
         let (chain, final_object) =
             block_on(form_deltified_chain(&mut pack_file, pack_location.offset)).unwrap();
-        let object = reconstruct_deltified_object_from_chain(&chain, &final_object);
-        assert_eq!(
-            object.object_type,
-            PackObjectType::Base(RawObjectType::Tree)
-        );
+        let (object_type, body) = block_on(reconstruct_deltified_object_from_chain(
+            &mut pack_file,
+            &chain,
+            &final_object,
+        ))
+        .unwrap();
+        assert_eq!(object_type, ObjectType::Tree);
         let mut expected = Vec::new();
         expected.extend_from_slice(b"100644 a\0");
         expected.extend_from_slice(&hex!("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"));
@@ -540,6 +585,6 @@ a tag
                 expected.extend_from_slice(&hex!("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"));
             }
         }
-        assert_eq!(object.body, expected);
+        assert_eq!(body, expected);
     }
 }

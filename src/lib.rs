@@ -15,6 +15,7 @@ pub use object::{
     CommitFields, Object, ObjectBody, ObjectHeader, ObjectId, PeeledCommit, PeeledTree, TagFields,
     TagType, TreeEntry, TreeEntryType, TreeFields,
 };
+pub use object_store::ObjectType;
 pub use reference::{Ref, RefName, RefType};
 pub use repo::Repo;
 

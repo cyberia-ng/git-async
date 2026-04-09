@@ -1,4 +1,4 @@
-use crate::{directory::DirectoryError, object::ObjectId, reference::RefName};
+use crate::{directory::DirectoryError, object::ObjectId, parsing::ParseError, reference::RefName};
 use alloc::vec::Vec;
 use miniz_oxide::inflate::DecompressError;
 
@@ -13,15 +13,66 @@ pub enum Error {
     Directory(#[cfg_attr(feature = "serde", serde(skip))] DirectoryError),
     PathError(#[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))] Vec<u8>),
     DecompressError(#[cfg_attr(feature = "serde", serde(skip))] DecompressError),
-    MalformedObject(ObjectId),
-    MalformedRef(RefName),
     FromHexError(#[cfg_attr(feature = "serde", serde(skip))] hex::FromHexError),
     UnsupportedIndexVersion,
     UnsupportedPackVersion,
-    MalformedPackObject,
-    MissingObject(ObjectId),
     MalformedPackedRefs,
+    MalformedRef(RefName),
     RefNotFound(RefName),
+    MalformedPackObject(ObjectId),
+    MalformedObject(ObjectId),
+    ObjectParseError {
+        id: ObjectId,
+        #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
+        snippet: Vec<u8>,
+    },
+    ObjectMissingRequiredFields(ObjectId),
+    MissingObject(ObjectId),
+    ObjectTooLarge(ObjectId),
+}
+
+#[derive(Debug)]
+pub(crate) enum InternalObjectError {
+    ExternalError(Error),
+    ObjectTooLarge,
+    ParseError { snippet: Vec<u8> },
+    MissingFields,
+    MalformedPackObject,
+}
+
+pub(crate) type IResult<T> = core::result::Result<T, InternalObjectError>;
+
+impl From<Error> for InternalObjectError {
+    fn from(value: Error) -> Self {
+        Self::ExternalError(value)
+    }
+}
+
+impl From<ParseError> for InternalObjectError {
+    fn from(value: ParseError) -> Self {
+        match value {
+            ParseError::ParseError { input_snippet } => InternalObjectError::ParseError {
+                snippet: input_snippet,
+            },
+            ParseError::MissingFields => InternalObjectError::MissingFields,
+        }
+    }
+}
+
+pub(crate) fn annotate_with_object_id(id: ObjectId) -> impl Fn(InternalObjectError) -> Error {
+    move |internal| match internal {
+        InternalObjectError::ExternalError(error) => error,
+        InternalObjectError::ObjectTooLarge => Error::ObjectTooLarge(id),
+        InternalObjectError::MalformedPackObject => Error::MalformedPackObject(id),
+        InternalObjectError::ParseError { snippet } => Error::ObjectParseError { id, snippet },
+        InternalObjectError::MissingFields => Error::ObjectMissingRequiredFields(id),
+    }
+}
+
+impl From<DirectoryError> for InternalObjectError {
+    fn from(value: DirectoryError) -> Self {
+        Self::ExternalError(value.into())
+    }
 }
 
 impl From<DirectoryError> for Error {
