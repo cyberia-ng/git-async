@@ -395,9 +395,9 @@ impl TagFields {
                 target: object?,
                 tag_type: tag_type?,
                 name: tag?,
-                tagger_name: tagger_name,
-                tagger_email: tagger_email,
-                tag_date: tag_date,
+                tagger_name,
+                tagger_email,
+                tag_date,
                 message: message.to_vec(),
                 additional_headers,
             })

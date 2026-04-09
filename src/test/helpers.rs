@@ -73,8 +73,7 @@ pub fn get_pack_id(repo: &TestRepo) -> io::Result<Vec<u8>> {
                 .file_name()
                 .as_bytes()
                 .strip_prefix(b"pack-")
-                .map(|s| s.strip_suffix(b".idx"))
-                .flatten()
+                .and_then(|s| s.strip_suffix(b".idx"))
                 .map(|s| s.to_vec())
         })
         .collect::<Vec<_>>();
