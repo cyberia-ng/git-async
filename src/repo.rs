@@ -100,6 +100,7 @@ mod tests {
         let refs = block_on(repo.ref_names()).unwrap();
         let expected: BTreeSet<_> = vec![
             RefName::Head,
+            RefName::Ref(b"stash".to_vec()),
             RefName::Ref(b"heads/main".to_vec()),
             RefName::Ref(b"heads/a-branch".to_vec()),
             RefName::Ref(b"heads/foo/a-branch".to_vec()),
