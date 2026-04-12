@@ -1,7 +1,7 @@
 use crate::{
     directory::{Directory, DirectoryError, File},
     error::{Error, GResult},
-    object::ObjectId,
+    object::{Commit, ObjectId, Tree},
     parsing::ParseResult,
     repo::Repo,
 };
@@ -115,6 +115,18 @@ impl<'r, D: Directory> Ref<'r, D> {
             RefType::Symbolic(_) => unreachable!(),
             RefType::Direct(oid) => Ok(oid),
         }
+    }
+
+    pub async fn peel_to_commit(&self) -> GResult<Option<Commit<'r, D>>> {
+        let oid = self.resolve_object_id().await?;
+        let object = self.repo.lookup_object(oid).await?;
+        object.peel_to_commit().await
+    }
+
+    pub async fn peel_to_tree(&self) -> GResult<Option<Tree<'r, D>>> {
+        let oid = self.resolve_object_id().await?;
+        let object = self.repo.lookup_object(oid).await?;
+        object.peel_to_tree().await
     }
 }
 
