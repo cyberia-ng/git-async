@@ -7,6 +7,8 @@ extern crate std;
 
 extern crate alloc;
 
+#[cfg(feature = "diff")]
+pub mod diff;
 pub mod error;
 pub mod file_system;
 pub mod object;

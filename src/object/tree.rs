@@ -91,7 +91,6 @@ pub struct Tree<D> {
     #[access(get(ty(&[TreeEntry<D>])))]
     entries: Vec<TreeEntry<D>>,
 
-    #[allow(dead_code)] // TODO Will be useful for diffing
     #[cfg_attr(feature = "serde", serde(skip))]
     repo: Option<Repo<D>>,
 }

@@ -5,7 +5,7 @@ use std::{
     os::unix::ffi::OsStrExt,
 };
 
-pub fn make_file(repo: &TestRepo, file_name: &str) -> io::Result<fs::File> {
+pub fn make_file(repo: &TestRepo, file_name: impl AsRef<std::path::Path>) -> io::Result<fs::File> {
     let mut f = OpenOptions::new()
         .write(true)
         .create_new(true)
