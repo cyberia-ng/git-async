@@ -173,7 +173,7 @@ async fn read_pack_object_body<F: File>(
         usize::try_from(object.size).map_err(|_| InternalObjectError::ObjectTooLarge)?;
     let mut pos = 0;
     let mut compressed_body_buf = vec![0u8; 4096];
-    let mut body = vec![0u8; object_size.next_power_of_two()];
+    let mut body = vec![0u8; object_size];
     let mut state = Box::<DecompressorOxide>::default();
     let mut out_idx: usize = 0;
     loop {
@@ -207,7 +207,6 @@ async fn read_pack_object_body<F: File>(
             }
         }
     }
-    body.truncate(object_size);
     Ok(body)
 }
 
