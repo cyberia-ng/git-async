@@ -100,7 +100,7 @@ async fn find_object_idx<F: File>(file: &mut F, id: ObjectId) -> GResult<Option<
                 obj_idx = Some(mid_idx);
             }
             Ordering::Less => {
-                lower_idx = mid_idx;
+                lower_idx = mid_idx + 1;
             }
             Ordering::Greater => {
                 upper_idx = mid_idx;
