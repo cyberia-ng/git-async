@@ -64,39 +64,174 @@ impl ObjectId {
 
 #[derive(Clone, Accessors)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct Object<'r, D> {
+pub struct Commit<'r, D> {
     #[access(get(cp))]
     id: ObjectId,
 
-    #[access(get)]
-    body: ObjectBody,
+    #[access(get(cp))]
+    tree: ObjectId,
+
+    #[access(get(ty(&[ObjectId])))]
+    parents: Vec<ObjectId>,
+
+    #[access(get(ty(&[u8])))]
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
+    author_name: Vec<u8>,
+
+    #[access(get(ty(&[u8])))]
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
+    author_email: Vec<u8>,
+
+    #[access(get(cp))]
+    author_date: DateTime<FixedOffset>,
+
+    #[access(get(ty(&[u8])))]
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
+    committer_name: Vec<u8>,
+
+    #[access(get(ty(&[u8])))]
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
+    committer_email: Vec<u8>,
+
+    #[access(get(cp))]
+    commit_date: DateTime<FixedOffset>,
+
+    #[access(get(ty(&[u8])))]
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
+    message: Vec<u8>,
+
+    #[access(get(ty(&[ObjectHeader])))]
+    additional_headers: Vec<ObjectHeader>,
 
     #[cfg_attr(feature = "serde", serde(skip))]
     repo: &'r Repo<D>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub enum TreeEntryType {
+    File,
+    Executable,
+    Symlink,
+    Tree,
+    Commit,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Accessors)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub struct TreeEntry {
+    #[access(get(ty(&[u8])))]
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
+    name: Vec<u8>,
+
+    #[access(get(cp))]
+    entry_type: TreeEntryType,
+
+    #[access(get(cp))]
+    id: ObjectId,
+}
+
+#[derive(Clone, Accessors)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub struct Tree<'r, D> {
+    #[access(get(cp))]
+    id: ObjectId,
+
+    #[access(get(ty(&[TreeEntry])))]
+    entries: Vec<TreeEntry>,
+
+    #[cfg_attr(feature = "serde", serde(skip))]
+    repo: &'r Repo<D>,
+}
+
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub enum TagType {
+    Commit,
+    Blob,
+    Tree,
+    Tag,
+}
+
+#[derive(Clone, Accessors)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub struct Tag<'r, D> {
+    #[access(get(cp))]
+    id: ObjectId,
+
+    #[access(get(cp))]
+    target: ObjectId,
+
+    #[access(get(cp))]
+    tag_type: TagType,
+
+    #[access(get(ty(&[u8])))]
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
+    name: Vec<u8>,
+
+    #[access(get(as_ref, ty(Option<&Vec<u8>>)))]
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde::option_utf8"))]
+    tagger_name: Option<Vec<u8>>,
+
+    #[access(get(as_ref, ty(Option<&Vec<u8>>)))]
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde::option_utf8"))]
+    tagger_email: Option<Vec<u8>>,
+
+    #[access(get(cp))]
+    tag_date: Option<DateTime<FixedOffset>>,
+
+    #[access(get(ty(&[u8])))]
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
+    message: Vec<u8>,
+
+    #[access(get(ty(&[ObjectHeader])))]
+    additional_headers: Vec<ObjectHeader>,
+
+    #[cfg_attr(feature = "serde", serde(skip))]
+    repo: &'r Repo<D>,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Accessors)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub struct Blob {
+    #[access(get(cp))]
+    id: ObjectId,
+
+    #[access(get(ty(&[u8])))]
+    #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
+    data: Vec<u8>,
+}
+
+#[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "serde", serde(tag = "type"))]
-pub enum ObjectBody {
-    Commit(CommitFields),
-    Tag(TagFields),
-    Tree(TreeFields),
-    Blob(BlobFields),
+pub enum Object<'r, D> {
+    Commit(Commit<'r, D>),
+    Tree(Tree<'r, D>),
+    Tag(Tag<'r, D>),
+    Blob(Blob),
 }
 
-#[derive(Debug, Clone)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct PeeledCommit {
-    pub id: ObjectId,
-    pub fields: CommitFields,
-}
+impl<'r, D> Object<'r, D> {
+    pub fn id(&self) -> ObjectId {
+        use Object::*;
+        match self {
+            Commit(c) => c.id(),
+            Tree(t) => t.id(),
+            Tag(t) => t.id(),
+            Blob(b) => b.id(),
+        }
+    }
 
-#[derive(Debug, Clone)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct PeeledTree {
-    pub id: ObjectId,
-    pub fields: TreeFields,
+    pub fn repo(&self) -> Option<&'r Repo<D>> {
+        use Object::*;
+        match self {
+            Commit(c) => Some(c.repo),
+            Tree(t) => Some(t.repo),
+            Tag(t) => Some(t.repo),
+            Blob(_) => None,
+        }
+    }
 }
 
 impl<'r, D: Directory> Object<'r, D> {
@@ -109,7 +244,7 @@ impl<'r, D: Directory> Object<'r, D> {
             .await?
             .ok_or_else(|| Error::MissingObject(id))?;
 
-        let (_, body) = ObjectBody::parser(object_type)
+        let (_, object) = Self::parser(id, object_type, repo)
             .parse(body.as_ref())
             .map_err(|e| match e {
                 nom::Err::Incomplete(_) => unreachable!(),
@@ -117,7 +252,7 @@ impl<'r, D: Directory> Object<'r, D> {
                 nom::Err::Failure(e) => InternalObjectError::from(e),
             })
             .map_err(annotate_with_object_id(id))?;
-        Ok(Self { id, body, repo })
+        Ok(object)
     }
 
     pub(crate) async fn lookup_size_type(
@@ -129,60 +264,31 @@ impl<'r, D: Directory> Object<'r, D> {
             .ok_or_else(|| Error::MissingObject(id))
     }
 
-    pub async fn peel_to_commit(self) -> GResult<Option<PeeledCommit>> {
-        match self.body {
-            ObjectBody::Commit(c) => Ok(Some(PeeledCommit {
-                id: self.id,
-                fields: c,
-            })),
-            ObjectBody::Tag(TagFields {
-                target: object_id, ..
-            }) => {
-                let object = Object::lookup(self.repo, object_id).await?;
-                object.peel_to_commit().await
-            }
-            _ => Ok(None),
-        }
-    }
-
-    pub async fn peel_to_tree(self) -> GResult<Option<PeeledTree>> {
-        match self.body {
-            ObjectBody::Tree(t) => Ok(Some(PeeledTree {
-                id: self.id,
-                fields: t,
-            })),
-            ObjectBody::Commit(CommitFields {
-                tree: object_id, ..
-            }) => {
-                let object = Object::lookup(self.repo, object_id).await?;
-                object.peel_to_tree().await
-            }
-            _ => Ok(None),
-        }
-    }
-}
-
-impl ObjectBody {
-    fn parser<'a>(object_type: ObjectType) -> impl Fn(&'a [u8]) -> ParseResult<&'a [u8], Self> {
+    fn parser<'a>(
+        id: ObjectId,
+        object_type: ObjectType,
+        repo: &'r Repo<D>,
+    ) -> impl Fn(&'a [u8]) -> ParseResult<&'a [u8], Self> {
         move |body: &[u8]| {
-            let (_, body) = match object_type {
-                ObjectType::Commit => all_consuming(CommitFields::parser)
-                    .map(ObjectBody::Commit)
+            let (_, object) = match object_type {
+                ObjectType::Commit => all_consuming(Commit::parser(id, repo))
+                    .map(Self::Commit)
                     .parse(body)?,
-                ObjectType::Tag => all_consuming(TagFields::parser)
-                    .map(ObjectBody::Tag)
+                ObjectType::Tag => all_consuming(Tag::parser(id, repo))
+                    .map(Self::Tag)
                     .parse(body)?,
-                ObjectType::Tree => all_consuming(TreeFields::parser)
-                    .map(ObjectBody::Tree)
+                ObjectType::Tree => all_consuming(Tree::parser(id, repo))
+                    .map(Self::Tree)
                     .parse(body)?,
                 ObjectType::Blob => (
                     &[][..],
-                    ObjectBody::Blob(BlobFields {
+                    Self::Blob(Blob {
+                        id,
                         data: body.to_vec(),
                     }),
                 ),
             };
-            Ok((&[][..], body))
+            Ok((&[][..], object))
         }
     }
 }
@@ -227,201 +333,135 @@ fn parse_object_headers(input: &[u8]) -> ParseResult<&[u8], Vec<ObjectHeader>> {
     Ok((rest, headers))
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Accessors)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct CommitFields {
-    #[access(get(cp))]
-    tree: ObjectId,
-
-    #[access(get(ty(&[ObjectId])))]
-    parents: Vec<ObjectId>,
-
-    #[access(get(ty(&[u8])))]
-    #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
-    author_name: Vec<u8>,
-
-    #[access(get(ty(&[u8])))]
-    #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
-    author_email: Vec<u8>,
-
-    #[access(get(cp))]
-    author_date: DateTime<FixedOffset>,
-
-    #[access(get(ty(&[u8])))]
-    #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
-    committer_name: Vec<u8>,
-
-    #[access(get(ty(&[u8])))]
-    #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
-    committer_email: Vec<u8>,
-
-    #[access(get(cp))]
-    commit_date: DateTime<FixedOffset>,
-
-    #[access(get(ty(&[u8])))]
-    #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
-    message: Vec<u8>,
-
-    #[access(get(ty(&[ObjectHeader])))]
-    additional_headers: Vec<ObjectHeader>,
-}
-
-impl CommitFields {
-    fn parser<'a>(input: &[u8]) -> ParseResult<&'a [u8], Self> {
-        let (message, raw_headers) = parse_object_headers.parse(input)?;
-        let mut tree_id: Option<ObjectId> = None;
-        let mut parents: Vec<ObjectId> = Vec::new();
-        let mut author_name: Option<Vec<u8>> = None;
-        let mut author_email: Option<Vec<u8>> = None;
-        let mut author_date: Option<DateTime<FixedOffset>> = None;
-        let mut committer_name: Option<Vec<u8>> = None;
-        let mut committer_email: Option<Vec<u8>> = None;
-        let mut commit_date: Option<DateTime<FixedOffset>> = None;
-        let mut additional_headers: Vec<ObjectHeader> = Vec::new();
-        for ObjectHeader { name, value } in raw_headers {
-            match name.as_slice() {
-                b"tree" => {
-                    let (_, object_id) = all_consuming(ObjectId::parse).parse(&value)?;
-                    tree_id = Some(object_id);
-                }
-                b"parent" => {
-                    let (_, object_id) = all_consuming(ObjectId::parse).parse(&value)?;
-                    parents.push(object_id);
-                }
-                b"author" => {
-                    let (_, (name, email, date)) =
-                        all_consuming(parse_author_committer_tagger).parse(&value)?;
-                    author_name = Some(name.to_vec());
-                    author_email = Some(email.to_vec());
-                    author_date = Some(date);
-                }
-                b"committer" => {
-                    let (_, (name, email, date)) =
-                        all_consuming(parse_author_committer_tagger).parse(&value)?;
-                    committer_name = Some(name.to_vec());
-                    committer_email = Some(email.to_vec());
-                    commit_date = Some(date);
-                }
-                _ => {
-                    additional_headers.push(ObjectHeader { name, value });
+impl<'r, D> Commit<'r, D> {
+    fn parser<'a>(
+        id: ObjectId,
+        repo: &'r Repo<D>,
+    ) -> impl Fn(&'a [u8]) -> ParseResult<&'a [u8], Self> {
+        move |input: &[u8]| {
+            let (message, raw_headers) = parse_object_headers.parse(input)?;
+            let mut tree_id: Option<ObjectId> = None;
+            let mut parents: Vec<ObjectId> = Vec::new();
+            let mut author_name: Option<Vec<u8>> = None;
+            let mut author_email: Option<Vec<u8>> = None;
+            let mut author_date: Option<DateTime<FixedOffset>> = None;
+            let mut committer_name: Option<Vec<u8>> = None;
+            let mut committer_email: Option<Vec<u8>> = None;
+            let mut commit_date: Option<DateTime<FixedOffset>> = None;
+            let mut additional_headers: Vec<ObjectHeader> = Vec::new();
+            for ObjectHeader { name, value } in raw_headers {
+                match name.as_slice() {
+                    b"tree" => {
+                        let (_, object_id) = all_consuming(ObjectId::parse).parse(&value)?;
+                        tree_id = Some(object_id);
+                    }
+                    b"parent" => {
+                        let (_, object_id) = all_consuming(ObjectId::parse).parse(&value)?;
+                        parents.push(object_id);
+                    }
+                    b"author" => {
+                        let (_, (name, email, date)) =
+                            all_consuming(parse_author_committer_tagger).parse(&value)?;
+                        author_name = Some(name.to_vec());
+                        author_email = Some(email.to_vec());
+                        author_date = Some(date);
+                    }
+                    b"committer" => {
+                        let (_, (name, email, date)) =
+                            all_consuming(parse_author_committer_tagger).parse(&value)?;
+                        committer_name = Some(name.to_vec());
+                        committer_email = Some(email.to_vec());
+                        commit_date = Some(date);
+                    }
+                    _ => {
+                        additional_headers.push(ObjectHeader { name, value });
+                    }
                 }
             }
-        }
-        let f = move || -> Option<CommitFields> {
-            Some(CommitFields {
-                author_name: author_name?,
-                author_email: author_email?,
-                author_date: author_date?,
-                committer_name: committer_name?,
-                committer_email: committer_email?,
-                commit_date: commit_date?,
-                tree: tree_id?,
-                parents,
-                message: message.to_vec(),
-                additional_headers,
-            })
-        };
-        match f() {
-            None => Err(nom::Err::Failure(ParseError::MissingFields)),
-            Some(commit) => Ok((&[][..], commit)),
+            let f = move || -> Option<Commit<'r, D>> {
+                Some(Commit {
+                    id,
+                    author_name: author_name?,
+                    author_email: author_email?,
+                    author_date: author_date?,
+                    committer_name: committer_name?,
+                    committer_email: committer_email?,
+                    commit_date: commit_date?,
+                    tree: tree_id?,
+                    parents,
+                    message: message.to_vec(),
+                    additional_headers,
+                    repo,
+                })
+            };
+            match f() {
+                None => Err(nom::Err::Failure(ParseError::MissingFields)),
+                Some(commit) => Ok((&[][..], commit)),
+            }
         }
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-pub enum TagType {
-    Commit,
-    Blob,
-    Tree,
-    Tag,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Accessors)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct TagFields {
-    #[access(get(cp))]
-    target: ObjectId,
-
-    #[access(get(cp))]
-    tag_type: TagType,
-
-    #[access(get(ty(&[u8])))]
-    #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
-    name: Vec<u8>,
-
-    #[access(get(as_ref, ty(Option<&Vec<u8>>)))]
-    #[cfg_attr(feature = "serde", serde(with = "crate::serde::option_utf8"))]
-    tagger_name: Option<Vec<u8>>,
-
-    #[access(get(as_ref, ty(Option<&Vec<u8>>)))]
-    #[cfg_attr(feature = "serde", serde(with = "crate::serde::option_utf8"))]
-    tagger_email: Option<Vec<u8>>,
-
-    #[access(get(cp))]
-    tag_date: Option<DateTime<FixedOffset>>,
-
-    #[access(get(ty(&[u8])))]
-    #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
-    message: Vec<u8>,
-
-    #[access(get(ty(&[ObjectHeader])))]
-    additional_headers: Vec<ObjectHeader>,
-}
-
-impl TagFields {
-    fn parser(input: &[u8]) -> ParseResult<&[u8], Self> {
-        let (message, raw_headers) = parse_object_headers.parse(input)?;
-        let mut object: Option<ObjectId> = None;
-        let mut tag_type: Option<TagType> = None;
-        let mut tag: Option<Vec<u8>> = None;
-        let mut tagger_name: Option<Vec<u8>> = None;
-        let mut tagger_email: Option<Vec<u8>> = None;
-        let mut tag_date: Option<DateTime<FixedOffset>> = None;
-        let mut additional_headers = Vec::new();
-        for ObjectHeader { name, value } in raw_headers {
-            match name.as_slice() {
-                b"object" => {
-                    let (_, object_id) = all_consuming(ObjectId::parse).parse(&value)?;
-                    object = Some(object_id)
-                }
-                b"type" => {
-                    tag_type = match value.as_slice() {
-                        b"commit" => Some(TagType::Commit),
-                        b"blob" => Some(TagType::Blob),
-                        b"tree" => Some(TagType::Tree),
-                        b"tag" => Some(TagType::Tag),
-                        _ => None,
-                    };
-                }
-                b"tag" => tag = Some(value),
-                b"tagger" => {
-                    let (_, (name, email, date)) =
-                        all_consuming(parse_author_committer_tagger).parse(&value)?;
-                    tagger_name = Some(name.to_vec());
-                    tagger_email = Some(email.to_vec());
-                    tag_date = Some(date);
-                }
-                _ => {
-                    additional_headers.push(ObjectHeader { name, value });
+impl<'r, D> Tag<'r, D> {
+    fn parser<'a>(
+        id: ObjectId,
+        repo: &'r Repo<D>,
+    ) -> impl Fn(&'a [u8]) -> ParseResult<&'a [u8], Self> {
+        move |input: &[u8]| {
+            let (message, raw_headers) = parse_object_headers.parse(input)?;
+            let mut object: Option<ObjectId> = None;
+            let mut tag_type: Option<TagType> = None;
+            let mut tag: Option<Vec<u8>> = None;
+            let mut tagger_name: Option<Vec<u8>> = None;
+            let mut tagger_email: Option<Vec<u8>> = None;
+            let mut tag_date: Option<DateTime<FixedOffset>> = None;
+            let mut additional_headers = Vec::new();
+            for ObjectHeader { name, value } in raw_headers {
+                match name.as_slice() {
+                    b"object" => {
+                        let (_, object_id) = all_consuming(ObjectId::parse).parse(&value)?;
+                        object = Some(object_id)
+                    }
+                    b"type" => {
+                        tag_type = match value.as_slice() {
+                            b"commit" => Some(TagType::Commit),
+                            b"blob" => Some(TagType::Blob),
+                            b"tree" => Some(TagType::Tree),
+                            b"tag" => Some(TagType::Tag),
+                            _ => None,
+                        };
+                    }
+                    b"tag" => tag = Some(value),
+                    b"tagger" => {
+                        let (_, (name, email, date)) =
+                            all_consuming(parse_author_committer_tagger).parse(&value)?;
+                        tagger_name = Some(name.to_vec());
+                        tagger_email = Some(email.to_vec());
+                        tag_date = Some(date);
+                    }
+                    _ => {
+                        additional_headers.push(ObjectHeader { name, value });
+                    }
                 }
             }
-        }
-        let f = move || -> Option<TagFields> {
-            Some(TagFields {
-                target: object?,
-                tag_type: tag_type?,
-                name: tag?,
-                tagger_name,
-                tagger_email,
-                tag_date,
-                message: message.to_vec(),
-                additional_headers,
-            })
-        };
-        match f() {
-            None => Err(nom::Err::Failure(ParseError::MissingFields)),
-            Some(tag) => Ok((&[][..], tag)),
+            let f = move || -> Option<Tag<'r, D>> {
+                Some(Tag {
+                    id,
+                    target: object?,
+                    tag_type: tag_type?,
+                    name: tag?,
+                    tagger_name,
+                    tagger_email,
+                    tag_date,
+                    message: message.to_vec(),
+                    additional_headers,
+                    repo,
+                })
+            };
+            match f() {
+                None => Err(nom::Err::Failure(ParseError::MissingFields)),
+                Some(tag) => Ok((&[][..], tag)),
+            }
         }
     }
 }
@@ -447,37 +487,6 @@ fn parse_author_committer_tagger(
             }),
     )
         .parse(input)
-}
-
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-pub enum TreeEntryType {
-    File,
-    Executable,
-    Symlink,
-    Tree,
-    Commit,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Accessors)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct TreeEntry {
-    #[access(get(ty(&[u8])))]
-    #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
-    name: Vec<u8>,
-
-    #[access(get(cp))]
-    entry_type: TreeEntryType,
-
-    #[access(get(cp))]
-    id: ObjectId,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Accessors)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct TreeFields {
-    #[access(get(ty(&[TreeEntry])))]
-    entries: Vec<TreeEntry>,
 }
 
 impl TreeEntry {
@@ -506,30 +515,36 @@ impl TreeEntry {
     }
 }
 
-impl TreeFields {
-    fn parser(input: &[u8]) -> ParseResult<&[u8], Self> {
-        many(0.., TreeEntry::parser)
-            .map(|entries| TreeFields { entries })
-            .parse(input)
+impl<'r, D> Tree<'r, D> {
+    fn parser<'a>(
+        id: ObjectId,
+        repo: &'r Repo<D>,
+    ) -> impl Fn(&'a [u8]) -> ParseResult<&'a [u8], Self> {
+        move |input: &'a [u8]| {
+            many(0.., TreeEntry::parser)
+                .map(|entries| Tree { id, entries, repo })
+                .parse(input)
+        }
     }
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Accessors)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct BlobFields {
-    #[access(get(ty(&[u8])))]
-    #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
-    data: Vec<u8>,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    use crate::test::helpers::{make_basic_repo, make_similar_commits};
+    use crate::test::{
+        helpers::{make_basic_repo, make_similar_commits},
+        repo::{TestRepo, TestRepoDirectory},
+    };
     use core::iter::zip;
     use futures::executor::block_on;
     use hex_literal::hex;
+
+    const ZERO_OID: ObjectId = ObjectId([0; 20]);
+
+    fn dummy_repo() -> Repo<TestRepoDirectory> {
+        TestRepo::new().unwrap().repo()
+    }
 
     #[test]
     fn lookup_commit() {
@@ -539,8 +554,8 @@ mod tests {
 
         let repo = test_repo.repo();
         let object = block_on(Object::lookup(&repo, commit_id)).unwrap();
-        assert_eq!(object.id, commit_id);
-        assert!(matches!(object.body, ObjectBody::Commit(_)));
+        assert_eq!(object.id(), commit_id);
+        assert!(matches!(object, Object::Commit(_)));
     }
 
     #[test]
@@ -551,13 +566,13 @@ mod tests {
         let repo = test_repo.repo();
         let head = block_on(repo.head()).unwrap();
         let oid = block_on(head.resolve_object_id()).unwrap();
-        let commit = match block_on(repo.lookup_object(oid)).unwrap().body {
-            ObjectBody::Commit(commit) => commit,
+        let commit = match block_on(repo.lookup_object(oid)).unwrap() {
+            Object::Commit(commit) => commit,
             _ => panic!(),
         };
         let tree_id = commit.tree;
-        let tree = match block_on(repo.lookup_object(tree_id)).unwrap().body {
-            ObjectBody::Tree(tree) => tree,
+        let tree = match block_on(repo.lookup_object(tree_id)).unwrap() {
+            Object::Tree(tree) => tree,
             _ => panic!(),
         };
         assert_eq!(tree.entries.len(), 1 + 26 - 2);
@@ -565,16 +580,19 @@ mod tests {
 
     #[test]
     fn parse_root_commit() {
+        let repo = dummy_repo();
         let data = b"tree 3a4df67dd7fd7cb3ca82d9896dbdd28053d39bdb
 author a-user <an-email-address> 1774735018 +0530
 committer another-user <another-email-address> 1774735019 -0800
 
 a commit
 ";
-        let (rest, body) = ObjectBody::parser(ObjectType::Commit).parse(data).unwrap();
+        let (rest, body) = Object::parser(ZERO_OID, ObjectType::Commit, &repo)
+            .parse(data)
+            .unwrap();
         assert_eq!(rest, &[]);
         let commit = match body {
-            ObjectBody::Commit(commit) => commit,
+            Object::Commit(commit) => commit,
             _ => panic!(),
         };
         assert_eq!(&commit.parents, &[]);
@@ -608,6 +626,7 @@ a commit
 
     #[test]
     fn parse_normal_commit() {
+        let repo = dummy_repo();
         let data = b"tree 4b825dc642cb6eb9a060e54bf8d69288fbee4904
 parent 16dafd3d0ba5af72f035d641c076a4150eda548d
 author a-user <an-email-address> 1774739676 +0000
@@ -615,9 +634,11 @@ committer a-user <an-email-address> 1774739676 +0000
 
 another commit
 ";
-        let (_, body) = ObjectBody::parser(ObjectType::Commit).parse(data).unwrap();
+        let (_, body) = Object::parser(ZERO_OID, ObjectType::Commit, &repo)
+            .parse(data)
+            .unwrap();
         let commit = match body {
-            ObjectBody::Commit(commit) => commit,
+            Object::Commit(commit) => commit,
             _ => panic!(),
         };
         assert_eq!(
@@ -628,6 +649,7 @@ another commit
 
     #[test]
     fn parse_merge_commit() {
+        let repo = dummy_repo();
         let data = b"tree bfb6d701e108f3be27395bd60c3417b47ffbe7d9
 parent f625376d12f2edc71cff70bb42d387ddf2408460
 parent 6904799d30a34bfcf6ca6a3526fc8b771ed6705c
@@ -636,9 +658,11 @@ committer a-user <an-email-address> 1774740069 +0000
 
 Merge branch 'branch'
 ";
-        let (_, body) = ObjectBody::parser(ObjectType::Commit).parse(data).unwrap();
+        let (_, body) = Object::parser(ZERO_OID, ObjectType::Commit, &repo)
+            .parse(data)
+            .unwrap();
         let commit = match body {
-            ObjectBody::Commit(commit) => commit,
+            Object::Commit(commit) => commit,
             _ => panic!(),
         };
         assert_eq!(commit.parents.len(), 2);
@@ -652,6 +676,7 @@ Merge branch 'branch'
 
     #[test]
     fn parse_commit_tag() {
+        let repo = dummy_repo();
         let data = b"object eedeffb6da16ddc3fb61b2255a8259cacc045691
 type commit
 tag annotated-tag
@@ -659,9 +684,11 @@ tagger a-user <an-email-address> 1774822895 +0100
 
 a message
 ";
-        let (_, body) = ObjectBody::parser(ObjectType::Tag).parse(data).unwrap();
+        let (_, body) = Object::parser(ZERO_OID, ObjectType::Tag, &repo)
+            .parse(data)
+            .unwrap();
         let tag = match body {
-            ObjectBody::Tag(tag) => tag,
+            Object::Tag(tag) => tag,
             _ => panic!(),
         };
         assert_eq!(
@@ -684,6 +711,7 @@ a message
 
     #[test]
     fn parse_blob_tag() {
+        let repo = dummy_repo();
         let data = b"object e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
 type blob
 tag blob-tag
@@ -691,9 +719,11 @@ tagger a-user <an-email-address> 1774826002 +0100
 
 a blob
 ";
-        let (_, fields) = ObjectBody::parser(ObjectType::Tag).parse(data).unwrap();
+        let (_, fields) = Object::parser(ZERO_OID, ObjectType::Tag, &repo)
+            .parse(data)
+            .unwrap();
         let tag = match fields {
-            ObjectBody::Tag(tag) => tag,
+            Object::Tag(tag) => tag,
             _ => panic!(),
         };
         assert_eq!(tag.tag_type, TagType::Blob);
@@ -701,6 +731,7 @@ a blob
 
     #[test]
     fn parse_tree_tag() {
+        let repo = dummy_repo();
         let data = b"object 3a4df67dd7fd7cb3ca82d9896dbdd28053d39bdb
 type tree
 tag tree-tag
@@ -708,9 +739,11 @@ tagger a-user <an-email-address> 1774826187 +0100
 
 a tree
 ";
-        let (_, fields) = ObjectBody::parser(ObjectType::Tag).parse(data).unwrap();
+        let (_, fields) = Object::parser(ZERO_OID, ObjectType::Tag, &repo)
+            .parse(data)
+            .unwrap();
         let tag = match fields {
-            ObjectBody::Tag(tag) => tag,
+            Object::Tag(tag) => tag,
             _ => panic!(),
         };
         assert_eq!(tag.tag_type, TagType::Tree);
@@ -718,6 +751,7 @@ a tree
 
     #[test]
     fn parse_nested_tag() {
+        let repo = dummy_repo();
         let data = b"object 1c8bf8368bc9b1fd14227c6c1a0b0f30a1812e70
 type tag
 tag tag-tag
@@ -725,9 +759,11 @@ tagger a-user <an-email-address> 1774826312 +0100
 
 a tag
 ";
-        let (_, fields) = ObjectBody::parser(ObjectType::Tag).parse(data).unwrap();
+        let (_, fields) = Object::parser(ZERO_OID, ObjectType::Tag, &repo)
+            .parse(data)
+            .unwrap();
         let tag = match fields {
-            ObjectBody::Tag(tag) => tag,
+            Object::Tag(tag) => tag,
             _ => panic!(),
         };
         assert_eq!(tag.tag_type, TagType::Tag);
@@ -735,6 +771,7 @@ a tag
 
     #[test]
     fn parse_tree() {
+        let repo = dummy_repo();
         let mut data = Vec::new();
         data.extend_from_slice(b"40000 a-directory\0");
         data.extend_from_slice(&hex!("3a4df67dd7fd7cb3ca82d9896dbdd28053d39bdb"));
@@ -746,9 +783,11 @@ a tag
         data.extend_from_slice(&hex!("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"));
         data.extend_from_slice(b"160000 a-commit\0");
         data.extend_from_slice(&hex!("91ca81cfccb6f88a34807e9810bb0be409f32d70"));
-        let (_, fields) = ObjectBody::parser(ObjectType::Tree).parse(&data).unwrap();
+        let (_, fields) = Object::parser(ZERO_OID, ObjectType::Tree, &repo)
+            .parse(&data)
+            .unwrap();
         let tree = match fields {
-            ObjectBody::Tree(tree) => tree,
+            Object::Tree(tree) => tree,
             _ => panic!(),
         };
         let expected_entries = [
@@ -785,10 +824,13 @@ a tag
 
     #[test]
     fn parse_empty_blob() {
+        let repo = dummy_repo();
         let input = b"";
-        let (_, fields) = ObjectBody::parser(ObjectType::Blob).parse(input).unwrap();
+        let (_, fields) = Object::parser(ZERO_OID, ObjectType::Blob, &repo)
+            .parse(input)
+            .unwrap();
         let blob = match fields {
-            ObjectBody::Blob(blob) => blob,
+            Object::Blob(blob) => blob,
             _ => panic!(),
         };
         assert_eq!(blob.data, &[]);
@@ -796,10 +838,13 @@ a tag
 
     #[test]
     fn parse_contentful_blob() {
+        let repo = dummy_repo();
         let input = b"hello world";
-        let (_, fields) = ObjectBody::parser(ObjectType::Blob).parse(input).unwrap();
+        let (_, fields) = Object::parser(ZERO_OID, ObjectType::Blob, &repo)
+            .parse(input)
+            .unwrap();
         let blob = match fields {
-            ObjectBody::Blob(blob) => blob,
+            Object::Blob(blob) => blob,
             _ => panic!(),
         };
         assert_eq!(blob.data, b"hello world");
@@ -807,6 +852,7 @@ a tag
 
     #[test]
     fn parse_commit_additional_headers() {
+        let repo = dummy_repo();
         let data = b"tree bfb6d701e108f3be27395bd60c3417b47ffbe7d9
 parent f625376d12f2edc71cff70bb42d387ddf2408460
 author a-user <an-email-address> 1774740069 +0000
@@ -817,9 +863,11 @@ some-other-header a long line-wrapped
 
 the commit message
 ";
-        let (_, fields) = ObjectBody::parser(ObjectType::Commit).parse(data).unwrap();
+        let (_, fields) = Object::parser(ZERO_OID, ObjectType::Commit, &repo)
+            .parse(data)
+            .unwrap();
         let commit = match fields {
-            ObjectBody::Commit(commit) => commit,
+            Object::Commit(commit) => commit,
             _ => panic!(),
         };
         assert_eq!(commit.additional_headers.len(), 2);

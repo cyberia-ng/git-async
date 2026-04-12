@@ -13,8 +13,7 @@ mod serde;
 
 pub use directory::{DirEntry, Directory, DirectoryError, File, Offset};
 pub use object::{
-    CommitFields, Object, ObjectBody, ObjectHeader, ObjectId, PeeledCommit, PeeledTree, TagFields,
-    TagType, TreeEntry, TreeEntryType, TreeFields,
+    Blob, Commit, Object, ObjectHeader, ObjectId, Tag, TagType, Tree, TreeEntry, TreeEntryType,
 };
 pub use object_store::{ObjectSize, ObjectType};
 pub use reference::{Ref, RefName, RefType};

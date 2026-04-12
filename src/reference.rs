@@ -175,7 +175,7 @@ pub(crate) async fn lookup_loose_ref<D: Directory>(
 #[cfg(test)]
 mod test {
     use crate::{
-        object::{ObjectBody, ObjectId},
+        object::{Object, ObjectId},
         test::helpers::{make_basic_repo, make_packfile_repo},
     };
     use core::matches;
@@ -225,7 +225,7 @@ mod test {
         let reference = block_on(repo.lookup_ref(&ref_name)).unwrap();
         let oid = block_on(reference.resolve_object_id()).unwrap();
         let object = block_on(repo.lookup_object(oid)).unwrap();
-        assert!(matches!(object.body(), ObjectBody::Commit(_)));
+        assert!(matches!(object, Object::Commit(_)));
     }
 
     #[test]
@@ -236,7 +236,7 @@ mod test {
         let reference = block_on(repo.lookup_ref(&ref_name)).unwrap();
         let oid = block_on(reference.resolve_object_id()).unwrap();
         let object = block_on(repo.lookup_object(oid)).unwrap();
-        assert!(matches!(object.body(), ObjectBody::Tag(_)));
+        assert!(matches!(object, Object::Tag(_)));
     }
 
     #[test]
