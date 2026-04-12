@@ -66,13 +66,9 @@ impl<D: Directory> Repo<D> {
 mod tests {
     use crate::{
         reference::RefType,
-        test::{
-            helpers::make_basic_repo,
-            repo::{TestDirectory, TestRepo},
-        },
+        test::{helpers::make_basic_repo, repo::TestRepo},
     };
     use futures::executor::block_on;
-    use std::path::PathBuf;
 
     use super::*;
 
