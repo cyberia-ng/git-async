@@ -8,10 +8,10 @@ use nom::{
 };
 
 use crate::{
-    directory::{Directory, DirectoryError, File},
+    directory::{Directory, DirectoryError, File, Offset},
     error::{Error, GResult},
     object::ObjectId,
-    object_store::{ObjectType, RawObject},
+    object_store::{ObjectSize, ObjectType, RawObject},
     repo::Repo,
 };
 
@@ -41,7 +41,7 @@ async fn get_loose_object_file<D: Directory>(
 pub(crate) async fn read_loose_object_size_type<D: Directory>(
     repo: &Repo<D>,
     id: ObjectId,
-) -> GResult<Option<(u64, ObjectType)>> {
+) -> GResult<Option<(ObjectSize, ObjectType)>> {
     let file = get_loose_object_file(repo, id).await?;
     let mut file = if let Some(file) = file {
         file
@@ -49,7 +49,7 @@ pub(crate) async fn read_loose_object_size_type<D: Directory>(
         return Ok(None);
     };
     let mut buf = [0u8; 32];
-    file.read_segment(0, &mut buf).await?;
+    file.read_segment(Offset(0), &mut buf).await?;
     let (_, (size, object_type)) = parse_header(&buf).map_err(|_| Error::MalformedObject(id))?;
     Ok(Some((size, object_type)))
 }
@@ -74,7 +74,7 @@ pub(crate) async fn read_loose_object<D: Directory>(
     }))
 }
 
-fn parse_header(input: &[u8]) -> nom::IResult<&[u8], (u64, ObjectType)> {
+fn parse_header(input: &[u8]) -> nom::IResult<&[u8], (ObjectSize, ObjectType)> {
     let (rest, (object_type, size)) = (
         terminated(
             alt((
@@ -85,7 +85,7 @@ fn parse_header(input: &[u8]) -> nom::IResult<&[u8], (u64, ObjectType)> {
             )),
             char(' '),
         ),
-        terminated(u64, char('\0')),
+        terminated(u64, char('\0')).map(ObjectSize),
     )
         .parse(input)?;
     Ok((rest, (size, object_type)))

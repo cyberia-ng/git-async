@@ -1,9 +1,9 @@
 use crate::{
-    directory::{DirEntry, Directory},
+    directory::{DirEntry, Directory, Offset},
     error::{GResult, annotate_with_object_id},
     object::ObjectId,
     object_store::{
-        ObjectType, RawObject,
+        ObjectSize, ObjectType, RawObject,
         index::find_object_in_pack_index,
         loose::{read_loose_object, read_loose_object_size_type},
         pack::{form_deltified_chain, reconstruct_deltified_object_from_chain},
@@ -12,10 +12,15 @@ use crate::{
 };
 use alloc::vec::Vec;
 
+pub(crate) struct IndexedPackFile<F> {
+    pub(crate) index: F,
+    pub(crate) pack: F,
+}
+
 pub(crate) async fn lookup_size_type<D: Directory>(
     repo: &Repo<D>,
     id: ObjectId,
-) -> GResult<Option<(u64, ObjectType)>> {
+) -> GResult<Option<(ObjectSize, ObjectType)>> {
     let opt_size_type = read_loose_object_size_type(repo, id).await?;
     if opt_size_type.is_some() {
         return Ok(opt_size_type);
@@ -57,17 +62,10 @@ pub(crate) async fn lookup<D: Directory>(
     }))
 }
 
-pub(crate) struct IndexedPackFile<F> {
-    pub(crate) index: F,
-    pub(crate) pack: F,
-}
-
-pub(crate) type PackOffset = u64;
-
 pub(crate) async fn find_packed_object<D: Directory>(
     repo: &Repo<D>,
     id: ObjectId,
-) -> GResult<Option<(IndexedPackFile<D::File>, PackOffset)>> {
+) -> GResult<Option<(IndexedPackFile<D::File>, Offset)>> {
     let pack_dir = repo
         .git_dir
         .open_subdir(b"objects")

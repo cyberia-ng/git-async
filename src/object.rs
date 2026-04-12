@@ -2,7 +2,7 @@ use crate::{
     directory::Directory,
     error::{Error, GResult, InternalObjectError, annotate_with_object_id},
     object_store::{
-        ObjectType, RawObject,
+        ObjectSize, ObjectType, RawObject,
         lookup::{lookup, lookup_size_type},
     },
     parsing::{ParseError, ParseResult},
@@ -123,7 +123,7 @@ impl<'r, D: Directory> Object<'r, D> {
     pub(crate) async fn lookup_size_type(
         repo: &'r Repo<D>,
         id: ObjectId,
-    ) -> GResult<(u64, ObjectType)> {
+    ) -> GResult<(ObjectSize, ObjectType)> {
         lookup_size_type(repo, id)
             .await?
             .ok_or_else(|| Error::MissingObject(id))

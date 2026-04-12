@@ -1,8 +1,10 @@
 use crate::{
-    directory::File,
+    directory::{File, Offset},
     error::{Error, IResult, InternalObjectError},
     object::ObjectId,
-    object_store::{ObjectType, index::find_object_in_pack_index, lookup::IndexedPackFile},
+    object_store::{
+        ObjectSize, ObjectType, index::find_object_in_pack_index, lookup::IndexedPackFile,
+    },
 };
 use alloc::boxed::Box;
 use alloc::vec;
@@ -19,28 +21,31 @@ use miniz_oxide::inflate::{
 };
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub(crate) enum PackObjectType {
+struct PackNegativeOffset(pub u64);
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+enum PackObjectType {
     Base(ObjectType),
-    OffsetDelta { base_offset_neg: u64 },
+    OffsetDelta { base_offset_neg: PackNegativeOffset },
     RefDelta { base_id: ObjectId },
 }
 
 #[derive(Debug)]
 pub(crate) struct PackObject {
-    pub body_offset: u64,
-    pub size: u64,
+    pub body_offset: Offset,
+    pub size: ObjectSize,
 }
 
 // Git uses three slightly different algorithms for encoding variable-width
 // integers in different contexts within the packfile. This is not documented
 // anywhere.
 
-fn read_obj_type_size(buf: &[u8]) -> IResult<(usize, PackObjectType, u64)> {
+fn read_obj_type_size(buf: &[u8]) -> IResult<(usize, PackObjectType, ObjectSize)> {
     // This algorithm is for reading the first part of the packfile object
     // header, which encodes the object type and size.
     let mut pos: usize = 0;
     let mut object_type: Option<PackObjectType> = None;
-    let mut obj_size: u64 = 0;
+    let mut obj_size = ObjectSize(0);
     let mut done_accumulating_size = false;
     for buf_byte in buf.iter() {
         done_accumulating_size = (0b10000000 & *buf_byte) == 0;
@@ -51,18 +56,20 @@ fn read_obj_type_size(buf: &[u8]) -> IResult<(usize, PackObjectType, u64)> {
                 0b00100000 => PackObjectType::Base(ObjectType::Tree),
                 0b00110000 => PackObjectType::Base(ObjectType::Blob),
                 0b01000000 => PackObjectType::Base(ObjectType::Tag),
-                0b01100000 => PackObjectType::OffsetDelta { base_offset_neg: 0 },
+                0b01100000 => PackObjectType::OffsetDelta {
+                    base_offset_neg: PackNegativeOffset(0),
+                },
                 0b01110000 => PackObjectType::RefDelta {
                     base_id: ObjectId([0; 20]),
                 },
                 _ => return Err(InternalObjectError::MalformedPackObject),
             });
             let size_bits = 0b00001111 & *buf_byte;
-            obj_size = size_bits.into();
+            obj_size.0 = size_bits.into();
         } else {
             let size_bits = 0b01111111 & *buf_byte;
             let shift: usize = 4 + 7 * (pos - 1);
-            obj_size += (size_bits as u64) << shift;
+            obj_size.0 += (size_bits as u64) << shift;
         }
         pos += 1;
         if done_accumulating_size {
@@ -75,20 +82,20 @@ fn read_obj_type_size(buf: &[u8]) -> IResult<(usize, PackObjectType, u64)> {
     Ok((pos, object_type.unwrap(), obj_size))
 }
 
-fn read_delta_offset(buf: &[u8]) -> (usize, u64) {
+fn read_delta_offset(buf: &[u8]) -> (usize, PackNegativeOffset) {
     // This algorithm is for reading the second part of the packfile object
     // header (in the case of an offset delta object), which encodes the
     // relative negative offset of the delta object's base object
     let mut bytes_read = 0;
-    let mut offset = 0;
+    let mut offset = PackNegativeOffset(0);
     let mut done_accumulating_offset = false;
     for (buf_idx, buf_byte) in buf.iter().enumerate() {
         done_accumulating_offset = (0b10000000 & *buf_byte) == 0;
         if buf_idx != 0 {
-            offset += 1;
+            offset.0 += 1;
         }
-        offset <<= 7;
-        offset += u64::from(buf_byte & 0b01111111);
+        offset.0 <<= 7;
+        offset.0 += u64::from(buf_byte & 0b01111111);
         bytes_read += 1;
         if done_accumulating_offset {
             break;
@@ -100,17 +107,17 @@ fn read_delta_offset(buf: &[u8]) -> (usize, u64) {
     (bytes_read, offset)
 }
 
-fn read_delta_expected_size(buf: &[u8]) -> (usize, u64) {
+fn read_delta_expected_size(buf: &[u8]) -> (usize, ObjectSize) {
     // This algorithm is for reading the expected base object and un-deltified
     // object sizes, which form the header of the decompressed data stream in an
     // offset delta object.
     let mut bytes_read = 0;
-    let mut size = 0;
+    let mut size = ObjectSize(0);
     let mut done_accumulating_size = false;
     let mut shift = 0;
     for buf_byte in buf.iter() {
         done_accumulating_size = (0b10000000 & *buf_byte) == 0;
-        size += u64::from(buf_byte & 0b01111111) << shift;
+        size.0 += u64::from(buf_byte & 0b01111111) << shift;
         shift += 7;
         bytes_read += 1;
         if done_accumulating_size {
@@ -125,14 +132,14 @@ fn read_delta_expected_size(buf: &[u8]) -> (usize, u64) {
 
 async fn read_pack_object_header<F: File>(
     pack_file: &mut F,
-    offset: u64,
+    offset: Offset,
 ) -> IResult<(PackObjectType, PackObject)> {
     let mut buf = [0u8; 4];
-    pack_file.read_segment(0, &mut buf).await?;
+    pack_file.read_segment(Offset(0), &mut buf).await?;
     if buf != *b"PACK" {
         return Err(Error::UnsupportedPackVersion.into());
     }
-    pack_file.read_segment(4, &mut buf).await?;
+    pack_file.read_segment(Offset(4), &mut buf).await?;
     if buf != [0, 0, 0, 2] {
         return Err(Error::UnsupportedPackVersion.into());
     }
@@ -173,7 +180,7 @@ async fn read_pack_object_header<F: File>(
     Ok((
         object_type,
         PackObject {
-            body_offset: offset + (pos as u64),
+            body_offset: Offset(offset.0 + (pos as u64)),
             size: obj_size,
         },
     ))
@@ -184,7 +191,7 @@ async fn read_pack_object_body<F: File>(
     object: &PackObject,
 ) -> IResult<Vec<u8>> {
     let object_size =
-        usize::try_from(object.size).map_err(|_| InternalObjectError::ObjectTooLarge)?;
+        usize::try_from(object.size.0).map_err(|_| InternalObjectError::ObjectTooLarge)?;
     let mut pos = 0;
     let mut compressed_body_buf = vec![0u8; 4096];
     let mut body = vec![0u8; object_size];
@@ -226,7 +233,7 @@ async fn read_pack_object_body<F: File>(
 
 pub(crate) async fn form_deltified_chain<F: File>(
     indexed_pack: &mut IndexedPackFile<F>,
-    start_offset: u64,
+    start_offset: Offset,
 ) -> IResult<(Vec<PackObject>, ObjectType, PackObject)> {
     let mut chain = Vec::new();
     let mut final_object: Option<(ObjectType, PackObject)> = None;
@@ -235,7 +242,7 @@ pub(crate) async fn form_deltified_chain<F: File>(
         let (object_type, object) = read_pack_object_header(&mut indexed_pack.pack, offset).await?;
         match &object_type {
             PackObjectType::OffsetDelta { base_offset_neg } => {
-                offset -= base_offset_neg;
+                offset.0 -= base_offset_neg.0;
                 chain.push(object);
             }
             PackObjectType::RefDelta { base_id } => {
@@ -260,7 +267,7 @@ fn reconstruct_deltified_object(deltified: &[u8], base: &[u8]) -> Vec<u8> {
     let (bytes_read, base_object_size) = read_delta_expected_size(&deltified[pos..]);
     pos += bytes_read;
     debug_assert_eq!(
-        base_object_size,
+        base_object_size.0,
         base.len().try_into().unwrap(),
         "base size"
     );
@@ -302,7 +309,7 @@ fn reconstruct_deltified_object(deltified: &[u8], base: &[u8]) -> Vec<u8> {
     }
     debug_assert_eq!(
         reconstructed_body.len(),
-        reconstructed_body_size.try_into().unwrap(),
+        reconstructed_body_size.0.try_into().unwrap(),
         "reconstructed size"
     );
     reconstructed_body
@@ -438,7 +445,7 @@ a tag
         assert_eq!(
             object_type,
             PackObjectType::OffsetDelta {
-                base_offset_neg: 128
+                base_offset_neg: PackNegativeOffset(128)
             }
         );
         let body = block_on(read_pack_object_body(&mut pack.pack, &pack_object)).unwrap();
@@ -471,12 +478,12 @@ a tag
         let base_object_size_encoded: [u8; _] = [0b10000000, 0b10000000, 0b00001000]; // 128 * 1024
         assert_eq!(
             read_delta_expected_size(&base_object_size_encoded).1,
-            128 * 1024
+            ObjectSize(128 * 1024)
         );
         let target_object_size_encoded: [u8; _] = [0b10001101, 0b10000000, 0b00000100]; // 10 + 3 + 0x10000
         assert_eq!(
             read_delta_expected_size(&target_object_size_encoded).1,
-            10 + 3 + 0x10000
+            ObjectSize(10 + 3 + 0x10000)
         );
 
         deltified_object.extend_from_slice(&base_object_size_encoded);

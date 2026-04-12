@@ -1,5 +1,5 @@
 use crate::{
-    directory::{DirEntry, Directory, DirectoryError, File},
+    directory::{DirEntry, Directory, DirectoryError, File, Offset},
     repo::Repo,
 };
 use core::cmp::min;
@@ -253,13 +253,13 @@ impl File for TestRepoFile {
 
     async fn read_segment(
         &mut self,
-        offset: u64,
+        offset: Offset,
         dest: &mut [u8],
     ) -> Result<usize, DirectoryError> {
         let metadata = self.file.metadata().unwrap();
-        let available_len = metadata.len() - offset;
+        let available_len = metadata.len() - offset.0;
         let read_len = min(usize::try_from(available_len).unwrap(), dest.len());
-        self.file.seek(io::SeekFrom::Start(offset)).unwrap();
+        self.file.seek(io::SeekFrom::Start(offset.0)).unwrap();
         self.file.read_exact(&mut dest[0..read_len]).unwrap();
         Ok(read_len)
     }
@@ -289,12 +289,15 @@ mod tests {
             root: TestDirectory::Temp(Rc::new(dir)),
             sub_path: PathBuf::new(),
         };
-        let offset: usize = 700;
+        let offset = Offset(700);
         let length: usize = 32;
         let mut file = block_on(dir.open_file(b"a-file")).unwrap();
         let mut content = vec![0u8; length];
-        block_on(file.read_segment(offset.try_into().unwrap(), &mut content)).unwrap();
+        block_on(file.read_segment(offset, &mut content)).unwrap();
         assert_eq!(content.len(), length);
-        assert_eq!(&content, &test_contents[offset..(offset + length)]);
+        assert_eq!(
+            &content,
+            &test_contents[(offset.0 as usize)..((offset.0 as usize) + length)]
+        );
     }
 }

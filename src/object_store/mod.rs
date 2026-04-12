@@ -15,6 +15,9 @@ pub enum ObjectType {
     Tree,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ObjectSize(pub u64);
+
 #[derive(Debug)]
 pub(crate) struct RawObject {
     pub object_type: ObjectType,

@@ -20,11 +20,30 @@ pub trait Directory: Sized + Clone {
     fn open_file(&self, name: &[u8]) -> impl Future<Output = Result<Self::File, DirectoryError>>;
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct Offset(pub u64);
+
+impl core::ops::Add<u64> for Offset {
+    type Output = Self;
+
+    fn add(self, rhs: u64) -> Self::Output {
+        Self(self.0 + rhs)
+    }
+}
+
+impl core::ops::Sub<u64> for Offset {
+    type Output = Self;
+
+    fn sub(self, rhs: u64) -> Self::Output {
+        Self(self.0 - rhs)
+    }
+}
+
 pub trait File: Sized {
     fn read_all(&mut self) -> impl Future<Output = Result<Vec<u8>, DirectoryError>>;
     fn read_segment(
         &mut self,
-        offset: u64,
+        offset: Offset,
         dest: &mut [u8],
     ) -> impl Future<Output = Result<usize, DirectoryError>>;
 }
@@ -67,10 +86,7 @@ pub(crate) async fn search_for_files<D: Directory>(root: &D) -> Result<Vec<Path>
     Ok(out)
 }
 
-pub(crate) async fn open_dir_path<D: Directory>(
-    directory: &D,
-    path: &Path,
-) -> Result<D, DirectoryError> {
+async fn open_dir_path<D: Directory>(directory: &D, path: &Path) -> Result<D, DirectoryError> {
     let mut dir = directory.clone();
     for component in path {
         dir = dir.open_subdir(component).await?;
