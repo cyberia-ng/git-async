@@ -1,45 +1,16 @@
 use crate::{
-    directory::Directory,
+    directory::{DirEntry, Directory},
     error::{GResult, annotate_with_object_id},
     object::ObjectId,
     object_store::{
         ObjectType, RawObject,
-        index::find_object,
+        index::find_object_in_pack_index,
         loose::{read_loose_object, read_loose_object_size_type},
-        pack::{
-            PackObject, PackObjectType, form_deltified_chain,
-            reconstruct_deltified_object_from_chain,
-        },
+        pack::{PackObjectType, form_deltified_chain, reconstruct_deltified_object_from_chain},
     },
     repo::Repo,
 };
 use alloc::vec::Vec;
-
-async fn get_packfile_chain<D: Directory>(
-    repo: &Repo<D>,
-    id: ObjectId,
-) -> GResult<Option<(D::File, Vec<PackObject>, PackObject)>> {
-    let pack_file_location = if let Some(location) = find_object(repo, id).await? {
-        location
-    } else {
-        return Ok(None);
-    };
-    let mut pack_file_name = b"pack-".to_vec();
-    pack_file_name.extend_from_slice(&pack_file_location.pack_id);
-    pack_file_name.extend_from_slice(b".pack");
-    let mut pack_file = repo
-        .git_dir
-        .open_subdir(b"objects")
-        .await?
-        .open_subdir(b"pack")
-        .await?
-        .open_file(&pack_file_name)
-        .await?;
-    let (chain, final_object) = form_deltified_chain(&mut pack_file, pack_file_location.offset)
-        .await
-        .map_err(annotate_with_object_id(id))?;
-    Ok(Some((pack_file, chain, final_object)))
-}
 
 pub(crate) async fn lookup_size_type<D: Directory>(
     repo: &Repo<D>,
@@ -49,12 +20,14 @@ pub(crate) async fn lookup_size_type<D: Directory>(
     if opt_size_type.is_some() {
         return Ok(opt_size_type);
     }
-    let opt_chain = get_packfile_chain(repo, id).await?;
-    let (_, _, final_object) = if let Some(pieces) = opt_chain {
+    let (mut pack, offset) = if let Some(pieces) = find_packed_object(repo, id).await? {
         pieces
     } else {
         return Ok(None);
     };
+    let (_, final_object) = form_deltified_chain(&mut pack, offset)
+        .await
+        .map_err(annotate_with_object_id(id))?;
     let object_type = match final_object.object_type {
         PackObjectType::Base(raw_object_type) => raw_object_type,
         PackObjectType::OffsetDelta { .. } => unreachable!(),
@@ -71,14 +44,16 @@ pub(crate) async fn lookup<D: Directory>(
     if loose_object.is_some() {
         return Ok(loose_object);
     }
-    let opt_chain = get_packfile_chain(repo, id).await?;
-    let (mut pack_file, chain, final_object) = if let Some(pieces) = opt_chain {
+    let (mut indexed_pack, offset) = if let Some(pieces) = find_packed_object(repo, id).await? {
         pieces
     } else {
         return Ok(None);
     };
+    let (chain, final_object) = form_deltified_chain(&mut indexed_pack, offset)
+        .await
+        .map_err(annotate_with_object_id(id))?;
     let (object_type, body) =
-        reconstruct_deltified_object_from_chain(&mut pack_file, &chain, &final_object)
+        reconstruct_deltified_object_from_chain(&mut indexed_pack, &chain, &final_object)
             .await
             .map_err(annotate_with_object_id(id))?;
     Ok(Some(RawObject {
@@ -86,4 +61,57 @@ pub(crate) async fn lookup<D: Directory>(
         id,
         body,
     }))
+}
+
+pub(crate) struct IndexedPackFile<F> {
+    pub(crate) index: F,
+    pub(crate) pack: F,
+}
+
+pub(crate) type PackOffset = u64;
+
+pub(crate) async fn find_packed_object<D: Directory>(
+    repo: &Repo<D>,
+    id: ObjectId,
+) -> GResult<Option<(IndexedPackFile<D::File>, PackOffset)>> {
+    let pack_dir = repo
+        .git_dir
+        .open_subdir(b"objects")
+        .await?
+        .open_subdir(b"pack")
+        .await?;
+    let idx_filenames: Vec<Vec<u8>> = pack_dir
+        .list_dir()
+        .await?
+        .into_iter()
+        .filter_map(|dirent| -> Option<Vec<u8>> {
+            use DirEntry::*;
+            let name = if let File(name) = dirent {
+                Some(name)
+            } else {
+                None
+            }?;
+            if name.ends_with(b".idx") {
+                Some(name)
+            } else {
+                None
+            }
+        })
+        .collect();
+    for idx in idx_filenames {
+        let mut idx_file = pack_dir.open_file(&idx).await?;
+        if let Some(offset) = find_object_in_pack_index(&mut idx_file, id).await? {
+            let mut pack_file_name = idx.strip_suffix(b".idx").unwrap().to_vec();
+            pack_file_name.extend_from_slice(b".pack");
+            let pack_file = pack_dir.open_file(&pack_file_name).await?;
+            return Ok(Some((
+                IndexedPackFile {
+                    index: idx_file,
+                    pack: pack_file,
+                },
+                offset,
+            )));
+        };
+    }
+    Ok(None)
 }

@@ -2,62 +2,22 @@ use crate::{
     directory::{DirEntry, Directory, File},
     error::{Error, GResult},
     object::ObjectId,
+    object_store::lookup::PackOffset,
     repo::Repo,
 };
 use alloc::vec::Vec;
 use core::cmp::Ordering;
 
-pub(crate) struct PackObjectLocation {
-    pub pack_id: Vec<u8>,
-    pub offset: u64,
-}
-
-pub(crate) async fn find_object<D: Directory>(
-    repo: &Repo<D>,
+pub(crate) async fn find_object_in_pack_index<F: File>(
+    idx_file: &mut F,
     id: ObjectId,
-) -> GResult<Option<PackObjectLocation>> {
-    let pack_dir = repo
-        .git_dir
-        .open_subdir(b"objects")
-        .await?
-        .open_subdir(b"pack")
-        .await?;
-    let idx_filenames: Vec<Vec<u8>> = pack_dir
-        .list_dir()
-        .await?
-        .into_iter()
-        .filter_map(|dirent| -> Option<Vec<u8>> {
-            use DirEntry::*;
-            let name = if let File(name) = dirent {
-                Some(name)
-            } else {
-                None
-            }?;
-            if name.get(0..5) == Some(b"pack-")
-                && name.get((name.len() - 4)..name.len()) == Some(b".idx")
-            {
-                Some(name)
-            } else {
-                None
-            }
-        })
-        .collect();
-    let mut location: Option<PackObjectLocation> = None;
-    for idx in idx_filenames {
-        let mut idx_file = pack_dir.open_file(&idx).await?;
-        if let Some((obj_idx, total_objects)) = find_object_idx(&mut idx_file, id).await? {
-            let offset = get_obj_packfile_offset(&mut idx_file, obj_idx, total_objects).await?;
-            let pack_id = idx
-                .strip_suffix(b".idx")
-                .unwrap()
-                .strip_prefix(b"pack-")
-                .unwrap()
-                .to_vec();
-            location = Some(PackObjectLocation { pack_id, offset });
-            break;
-        }
+) -> GResult<Option<PackOffset>> {
+    if let Some((obj_idx, total_objects)) = find_object_idx(idx_file, id).await? {
+        let offset = get_obj_packfile_offset(idx_file, obj_idx, total_objects).await?;
+        Ok(Some(offset))
+    } else {
+        Ok(None)
     }
-    Ok(location)
 }
 
 async fn find_object_idx<F: File>(file: &mut F, id: ObjectId) -> GResult<Option<(u32, u32)>> {
