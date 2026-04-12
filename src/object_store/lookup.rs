@@ -6,7 +6,7 @@ use crate::{
         ObjectType, RawObject,
         index::find_object_in_pack_index,
         loose::{read_loose_object, read_loose_object_size_type},
-        pack::{PackObjectType, form_deltified_chain, reconstruct_deltified_object_from_chain},
+        pack::{form_deltified_chain, reconstruct_deltified_object_from_chain},
     },
     repo::Repo,
 };
@@ -25,14 +25,9 @@ pub(crate) async fn lookup_size_type<D: Directory>(
     } else {
         return Ok(None);
     };
-    let (_, final_object) = form_deltified_chain(&mut pack, offset)
+    let (_, object_type, final_object) = form_deltified_chain(&mut pack, offset)
         .await
         .map_err(annotate_with_object_id(id))?;
-    let object_type = match final_object.object_type {
-        PackObjectType::Base(raw_object_type) => raw_object_type,
-        PackObjectType::OffsetDelta { .. } => unreachable!(),
-        PackObjectType::RefDelta => todo!(),
-    };
     Ok(Some((final_object.size, object_type)))
 }
 
@@ -49,13 +44,12 @@ pub(crate) async fn lookup<D: Directory>(
     } else {
         return Ok(None);
     };
-    let (chain, final_object) = form_deltified_chain(&mut indexed_pack, offset)
+    let (chain, object_type, final_object) = form_deltified_chain(&mut indexed_pack, offset)
         .await
         .map_err(annotate_with_object_id(id))?;
-    let (object_type, body) =
-        reconstruct_deltified_object_from_chain(&mut indexed_pack, &chain, &final_object)
-            .await
-            .map_err(annotate_with_object_id(id))?;
+    let body = reconstruct_deltified_object_from_chain(&mut indexed_pack, &chain, &final_object)
+        .await
+        .map_err(annotate_with_object_id(id))?;
     Ok(Some(RawObject {
         object_type,
         id,

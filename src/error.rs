@@ -29,6 +29,7 @@ pub enum Error {
     ObjectMissingRequiredFields(ObjectId),
     MissingObject(ObjectId),
     ObjectTooLarge(ObjectId),
+    UnexpectedThinPack,
 }
 
 #[derive(Debug)]

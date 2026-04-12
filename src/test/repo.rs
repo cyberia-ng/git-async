@@ -32,6 +32,19 @@ impl TestDirectory {
             Real(d) => d.as_path(),
         }
     }
+
+    #[allow(dead_code)]
+    /// Keep the test directory around for debugging
+    pub fn forget(&self) {
+        use TestDirectory::*;
+        match self {
+            Temp(d) => {
+                std::mem::forget(d.clone());
+                println!("{:?}", d.path());
+            }
+            Real(_) => {}
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -161,20 +174,6 @@ impl TestRepo {
         let file = OpenOptions::new()
             .read(true)
             .open(self.pack_dir_path().join(OsStr::from_bytes(&idx_name)))?;
-        Ok(TestRepoFile {
-            file,
-            _dir: self.location.clone(),
-        })
-    }
-
-    pub fn pack_file(&self, pack_id: &[u8]) -> io::Result<TestRepoFile> {
-        let mut pack_name = Vec::new();
-        pack_name.extend_from_slice(b"pack-");
-        pack_name.extend_from_slice(pack_id);
-        pack_name.extend_from_slice(b".pack");
-        let file = OpenOptions::new()
-            .read(true)
-            .open(self.pack_dir_path().join(OsStr::from_bytes(&pack_name)))?;
         Ok(TestRepoFile {
             file,
             _dir: self.location.clone(),

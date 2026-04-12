@@ -1,11 +1,9 @@
 use crate::{
-    directory::{DirEntry, Directory, File},
+    directory::File,
     error::{Error, GResult},
     object::ObjectId,
     object_store::lookup::PackOffset,
-    repo::Repo,
 };
-use alloc::vec::Vec;
 use core::cmp::Ordering;
 
 pub(crate) async fn find_object_in_pack_index<F: File>(
