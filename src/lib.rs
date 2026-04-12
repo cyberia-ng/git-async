@@ -1,8 +1,8 @@
 #![cfg_attr(not(test), no_std)]
 extern crate alloc;
 
-pub mod directory;
-pub mod error;
+mod directory;
+mod error;
 mod object;
 mod object_store;
 mod parsing;
@@ -12,6 +12,7 @@ mod repo;
 mod serde;
 
 pub use directory::{DirEntry, Directory, DirectoryError, File, Offset};
+pub use error::{Error, GResult};
 pub use object::{
     Blob, Commit, Object, ObjectHeader, ObjectId, Tag, TagType, Tree, TreeEntry, TreeEntryType,
 };

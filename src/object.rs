@@ -139,6 +139,7 @@ pub struct Tree<'r, D> {
     #[access(get(ty(&[TreeEntry])))]
     entries: Vec<TreeEntry>,
 
+    #[allow(dead_code)] // TODO Will be useful for diffing
     #[cfg_attr(feature = "serde", serde(skip))]
     repo: &'r Repo<D>,
 }
@@ -220,16 +221,6 @@ impl<'r, D: Directory> Object<'r, D> {
             Tree(t) => t.id(),
             Tag(t) => t.id(),
             Blob(b) => b.id(),
-        }
-    }
-
-    pub fn repo(&self) -> Option<&'r Repo<D>> {
-        use Object::*;
-        match self {
-            Commit(c) => Some(c.repo),
-            Tree(t) => Some(t.repo),
-            Tag(t) => Some(t.repo),
-            Blob(_) => None,
         }
     }
 
