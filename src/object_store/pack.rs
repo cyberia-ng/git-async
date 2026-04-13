@@ -338,7 +338,7 @@ mod tests {
     };
 
     use crate::{
-        ObjectId,
+        object::ObjectId,
         object_store::lookup::find_packed_object,
         test::helpers::{make_basic_repo, make_packfile_repo, make_similar_commits},
     };

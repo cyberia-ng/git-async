@@ -2,7 +2,7 @@ use crate::{
     directory::Directory,
     error::{Error, GResult, InternalObjectError, annotate_with_object_id},
     object_store::{
-        ObjectSize, ObjectType, RawObject,
+        RawObject,
         lookup::{lookup, lookup_size_type},
     },
     parsing::{ParseError, ParseResult},
@@ -20,6 +20,8 @@ use nom::{
     multi::{many, many0},
     sequence::{delimited, preceded, terminated},
 };
+
+pub use crate::object_store::{ObjectSize, ObjectType};
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
