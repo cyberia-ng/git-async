@@ -18,10 +18,10 @@ use nom::{
 };
 
 #[cfg(feature = "serde")]
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "serde", serde(tag = "type", content = "value"))]
 pub enum RefName {
     Head,

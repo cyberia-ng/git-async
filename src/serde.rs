@@ -38,50 +38,48 @@ impl<'de> Deserialize<'de> for ObjectId {
     }
 }
 
+enum MaybeUtf8<'a> {
+    Utf8(&'a str),
+    Bytes(&'a [u8]),
+}
+
+impl<'a> From<&'a [u8]> for MaybeUtf8<'a> {
+    fn from(value: &'a [u8]) -> Self {
+        match str::from_utf8(value) {
+            Ok(str) => Self::Utf8(str),
+            Err(_) => Self::Bytes(value),
+        }
+    }
+}
+
+impl<'a> serde::Serialize for MaybeUtf8<'a> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use MaybeUtf8::*;
+        match self {
+            Utf8(str) => serializer.serialize_str(str),
+            Bytes(bytes) => serializer.serialize_bytes(bytes),
+        }
+    }
+}
+
 pub(crate) mod utf8 {
     use super::*;
-    use alloc::vec::Vec;
-    use serde::ser::Error;
 
     pub fn serialize<S: Serializer>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error> {
-        let utf8 = str::from_utf8(bytes).map_err(|_| S::Error::custom("invalid UTF-8 string"))?;
-        serializer.serialize_str(utf8)
-    }
-
-    struct Utf8Visitor;
-    impl<'de> Visitor<'de> for Utf8Visitor {
-        type Value = Vec<u8>;
-
-        fn expecting(&self, formatter: &mut alloc::fmt::Formatter) -> alloc::fmt::Result {
-            write!(formatter, "a string")
-        }
-
-        fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
-        where
-            E: serde::de::Error,
-        {
-            Ok(v.as_bytes().to_vec())
-        }
-    }
-
-    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<u8>, D::Error> {
-        deserializer.deserialize_str(Utf8Visitor)
+        MaybeUtf8::from(bytes).serialize(serializer)
     }
 }
 
 pub(crate) mod option_utf8 {
     use super::*;
     use alloc::vec::Vec;
-    use serde::ser::Error;
 
     pub fn serialize<S: Serializer>(
         bytes: &Option<Vec<u8>>,
         serializer: S,
     ) -> Result<S::Ok, S::Error> {
         if let Some(bytes) = bytes {
-            let utf8 =
-                str::from_utf8(bytes).map_err(|_| S::Error::custom("invalid UTF-8 string"))?;
-            serializer.serialize_some(utf8)
+            serializer.serialize_some(&MaybeUtf8::from(bytes.as_slice()))
         } else {
             serializer.serialize_none()
         }
