@@ -9,7 +9,7 @@ use crate::{
     repo::Repo,
 };
 use accessory::Accessors;
-use alloc::{boxed::Box, format, vec::Vec};
+use alloc::{format, vec::Vec};
 use chrono::{DateTime, FixedOffset};
 use nom::{
     Parser,
@@ -235,29 +235,35 @@ impl<'r, D: Directory> Object<'r, D> {
 
     pub async fn peel_to_commit(&self) -> GResult<Option<Commit<'r, D>>> {
         use Object::*;
-        match self {
-            Commit(c) => Ok(Some(c.clone())),
-            Tag(t) => {
-                let target = t.repo.lookup_object(t.target()).await?;
-                Box::pin(target.peel_to_commit()).await
+        let mut obj = self.clone();
+        loop {
+            match obj {
+                Commit(c) => return Ok(Some(c)),
+                Tag(t) => {
+                    let target = t.repo.lookup_object(t.target()).await?;
+                    obj = target;
+                }
+                _ => return Ok(None),
             }
-            _ => Ok(None),
         }
     }
 
     pub async fn peel_to_tree(&self) -> GResult<Option<Tree<'r, D>>> {
         use Object::*;
-        match self {
-            Tree(t) => Ok(Some(t.clone())),
-            Commit(c) => {
-                let tree = c.repo.lookup_object(c.tree()).await?;
-                Box::pin(tree.peel_to_tree()).await
+        let mut obj = self.clone();
+        loop {
+            match obj {
+                Tree(t) => return Ok(Some(t)),
+                Commit(c) => {
+                    let tree = c.repo.lookup_object(c.tree()).await?;
+                    obj = tree;
+                }
+                Tag(t) => {
+                    let target = t.repo.lookup_object(t.target()).await?;
+                    obj = target;
+                }
+                Blob(_) => return Ok(None),
             }
-            Tag(t) => {
-                let target = t.repo.lookup_object(t.target()).await?;
-                Box::pin(target.peel_to_tree()).await
-            }
-            Blob(_) => Ok(None),
         }
     }
 
