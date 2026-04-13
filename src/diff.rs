@@ -1,13 +1,19 @@
+#![allow(missing_docs)]
 use crate::{
     Repo,
     error::{Error, GResult},
     file_system::Directory,
-    object::{ObjectId, Tree, TreeEntry, TreeEntryType},
+    object::{Object, ObjectId, Tree, TreeEntry, TreeEntryType},
 };
+use alloc::format;
 use alloc::vec::Vec;
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+use similar::{TextDiff, TextDiffConfig};
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Path(Vec<u8>);
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct Path(#[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))] Vec<u8>);
 
 impl core::fmt::Debug for Path {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -32,19 +38,23 @@ fn join(path: Option<&Path>, component: &[u8]) -> Path {
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum DiffEntry {
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum DiffEntry<Content> {
     LeftOnly {
         path: Path,
-        id: ObjectId,
+        entry_type: TreeEntryType,
+        content: Content,
     },
     Both {
         path: Path,
-        left_id: ObjectId,
-        right_id: ObjectId,
+        left_type: TreeEntryType,
+        right_type: TreeEntryType,
+        content: Content,
     },
     RightOnly {
         path: Path,
-        id: ObjectId,
+        entry_type: TreeEntryType,
+        content: Content,
     },
 }
 
@@ -56,12 +66,15 @@ async fn tree<D: Directory>(repo: &Repo<D>, id: ObjectId) -> GResult<Tree<D>> {
         .ok_or_else(|| Error::MalformedObject(id))
 }
 
-pub async fn diff<D: Directory>(left: &Tree<D>, right: &Tree<D>) -> GResult<Vec<DiffEntry>> {
+pub async fn diff_trees<D: Directory>(
+    left: &Tree<D>,
+    right: &Tree<D>,
+) -> GResult<Vec<DiffEntry<(ObjectId, ObjectId)>>> {
     if left.id() == right.id() {
         return Ok(Vec::new());
     }
     let repo = left.repo()?;
-    let mut out: Vec<DiffEntry> = Vec::new();
+    let mut out: Vec<DiffEntry<(ObjectId, ObjectId)>> = Vec::new();
     #[allow(clippy::type_complexity)]
     let mut stack: Vec<(Option<Path>, Option<Tree<D>>, Option<Tree<D>>)> = Vec::new();
     stack.push((None, Some(left.clone()), Some(right.clone())));
@@ -83,7 +96,8 @@ pub async fn diff<D: Directory>(left: &Tree<D>, right: &Tree<D>) -> GResult<Vec<
                     } else {
                         out.push(DiffEntry::LeftOnly {
                             path,
-                            id: entry.id(),
+                            entry_type: entry.entry_type(),
+                            content: (entry.id(), ObjectId::zero()),
                         });
                     }
                 }
@@ -98,7 +112,8 @@ pub async fn diff<D: Directory>(left: &Tree<D>, right: &Tree<D>) -> GResult<Vec<
                     } else {
                         out.push(DiffEntry::RightOnly {
                             path,
-                            id: entry.id(),
+                            entry_type: entry.entry_type(),
+                            content: (ObjectId::zero(), entry.id()),
                         });
                     }
                 }
@@ -137,7 +152,8 @@ pub async fn diff<D: Directory>(left: &Tree<D>, right: &Tree<D>) -> GResult<Vec<
             } else {
                 out.push(DiffEntry::LeftOnly {
                     path,
-                    id: entry.id(),
+                    entry_type: entry.entry_type(),
+                    content: (entry.id(), ObjectId::zero()),
                 });
             }
         }
@@ -149,7 +165,8 @@ pub async fn diff<D: Directory>(left: &Tree<D>, right: &Tree<D>) -> GResult<Vec<
             } else {
                 out.push(DiffEntry::RightOnly {
                     path,
-                    id: entry.id(),
+                    entry_type: entry.entry_type(),
+                    content: (ObjectId::zero(), entry.id()),
                 });
             }
         }
@@ -169,7 +186,8 @@ pub async fn diff<D: Directory>(left: &Tree<D>, right: &Tree<D>) -> GResult<Vec<
                     let path = join(parent_path.as_ref(), name);
                     out.push(DiffEntry::RightOnly {
                         path: path.clone(),
-                        id: right.id(),
+                        entry_type: right.entry_type(),
+                        content: (ObjectId::zero(), right.id()),
                     });
                     let left_tree = tree(repo, left.id()).await?;
                     stack.push((Some(path), Some(left_tree), None));
@@ -178,7 +196,8 @@ pub async fn diff<D: Directory>(left: &Tree<D>, right: &Tree<D>) -> GResult<Vec<
                     let path = join(parent_path.as_ref(), name);
                     out.push(DiffEntry::LeftOnly {
                         path: path.clone(),
-                        id: left.id(),
+                        entry_type: left.entry_type(),
+                        content: (left.id(), ObjectId::zero()),
                     });
                     let right_tree = tree(repo, right.id()).await?;
                     stack.push((Some(path), None, Some(right_tree)));
@@ -186,14 +205,94 @@ pub async fn diff<D: Directory>(left: &Tree<D>, right: &Tree<D>) -> GResult<Vec<
                 _ => {
                     out.push(DiffEntry::Both {
                         path: join(parent_path.as_ref(), name),
-                        left_id: left.id(),
-                        right_id: right.id(),
+                        left_type: left.entry_type(),
+                        right_type: right.entry_type(),
+                        content: (left.id(), right.id()),
                     });
                 }
             }
         }
     }
     Ok(out)
+}
+
+async fn resolve_entry<D: Directory>(
+    repo: &Repo<D>,
+    entry: &DiffEntry<(ObjectId, ObjectId)>,
+    config: TextDiffConfig,
+) -> GResult<DiffEntry<TextDiff<'static, 'static, [u8]>>> {
+    match entry {
+        DiffEntry::LeftOnly {
+            path,
+            entry_type,
+            content: (id, _),
+        } => {
+            let body = read_leaf(repo, *entry_type, *id).await?;
+            Ok(DiffEntry::LeftOnly {
+                path: path.clone(),
+                entry_type: *entry_type,
+                content: config.diff_lines(body, Vec::new()),
+            })
+        }
+        DiffEntry::RightOnly {
+            path,
+            entry_type,
+            content: (_, id),
+        } => {
+            let body = read_leaf(repo, *entry_type, *id).await?;
+            Ok(DiffEntry::RightOnly {
+                path: path.clone(),
+                entry_type: *entry_type,
+                content: config.diff_lines(Vec::new(), body),
+            })
+        }
+        DiffEntry::Both {
+            path,
+            left_type,
+            right_type,
+            content: (left_id, right_id),
+        } => {
+            let left_body = read_leaf(repo, *left_type, *left_id).await?;
+            let right_body = read_leaf(repo, *right_type, *right_id).await?;
+            let diff = config.diff_lines(left_body, right_body);
+            Ok(DiffEntry::Both {
+                path: path.clone(),
+                left_type: *left_type,
+                right_type: *right_type,
+                content: diff,
+            })
+        }
+    }
+}
+
+pub async fn to_text_diff<D: Directory>(
+    repo: &Repo<D>,
+    tree_diff: &[DiffEntry<(ObjectId, ObjectId)>],
+    config: TextDiffConfig,
+) -> GResult<Vec<DiffEntry<TextDiff<'static, 'static, [u8]>>>> {
+    let mut out: Vec<_> = Vec::with_capacity(tree_diff.len());
+    for entry in tree_diff {
+        let entry = resolve_entry(repo, entry, config.clone()).await?;
+        out.push(entry)
+    }
+    Ok(out)
+}
+
+async fn read_leaf<D: Directory>(
+    repo: &Repo<D>,
+    entry_type: TreeEntryType,
+    id: ObjectId,
+) -> GResult<Vec<u8>> {
+    debug_assert!(entry_type != TreeEntryType::Tree);
+    if entry_type == TreeEntryType::Commit {
+        let s = format!("{}", id);
+        return Ok(s.into_bytes());
+    }
+    let object = repo.lookup_object(id).await?;
+    if let Object::Blob(b) = object {
+        return Ok(b.data_owned());
+    }
+    unreachable!("Tree entry resolved object was not a blob")
 }
 
 #[cfg(test)]
@@ -226,7 +325,7 @@ mod tests {
         let test_repo = make_basic_repo().unwrap();
         let repo = test_repo.repo();
         let tree = head_tree(&repo);
-        assert!(block_on(diff(&tree, &tree)).unwrap().is_empty())
+        assert!(block_on(diff_trees(&tree, &tree)).unwrap().is_empty())
     }
 
     #[test]
@@ -248,39 +347,51 @@ mod tests {
             .commit("a commit", "a user", "an-email", "2000-01-01T00:00:00Z")
             .unwrap();
         let after = head_tree(&repo);
-        let the_diff = block_on(diff(&before, &after)).unwrap();
+        let the_diff = block_on(diff_trees(&before, &after)).unwrap();
         assert_eq!(
             the_diff.into_iter().collect::<BTreeSet<_>>(),
             vec![
                 DiffEntry::Both {
                     path: Path(b"a".to_vec()),
-                    left_id: ObjectId::from_hex(b"e69de29bb2d1d6434b8b29ae775ad8c2e48c5391")
-                        .unwrap(),
-                    right_id: ObjectId::from_hex(b"7c0646bfd53c1f0ed45ffd81563f30017717ca58")
-                        .unwrap(),
+                    left_type: TreeEntryType::File,
+                    right_type: TreeEntryType::File,
+                    content: (
+                        ObjectId::from_hex(b"e69de29bb2d1d6434b8b29ae775ad8c2e48c5391").unwrap(),
+                        ObjectId::from_hex(b"7c0646bfd53c1f0ed45ffd81563f30017717ca58").unwrap(),
+                    ),
                 },
                 DiffEntry::RightOnly {
                     path: Path(b"b".to_vec()),
-                    id: ObjectId::from_hex(b"dfa37ec69ffae3abcf7efbb386226cb84b510fa8").unwrap()
+                    entry_type: TreeEntryType::File,
+                    content: (
+                        ObjectId::zero(),
+                        ObjectId::from_hex(b"dfa37ec69ffae3abcf7efbb386226cb84b510fa8").unwrap()
+                    )
                 }
             ]
             .into_iter()
             .collect()
         );
-        let the_diff = block_on(diff(&after, &before)).unwrap();
+        let the_diff = block_on(diff_trees(&after, &before)).unwrap();
         assert_eq!(
             the_diff.into_iter().collect::<BTreeSet<_>>(),
             vec![
                 DiffEntry::Both {
                     path: Path(b"a".to_vec()),
-                    left_id: ObjectId::from_hex(b"7c0646bfd53c1f0ed45ffd81563f30017717ca58")
-                        .unwrap(),
-                    right_id: ObjectId::from_hex(b"e69de29bb2d1d6434b8b29ae775ad8c2e48c5391")
-                        .unwrap(),
+                    left_type: TreeEntryType::File,
+                    right_type: TreeEntryType::File,
+                    content: (
+                        ObjectId::from_hex(b"7c0646bfd53c1f0ed45ffd81563f30017717ca58").unwrap(),
+                        ObjectId::from_hex(b"e69de29bb2d1d6434b8b29ae775ad8c2e48c5391").unwrap(),
+                    ),
                 },
                 DiffEntry::LeftOnly {
                     path: Path(b"b".to_vec()),
-                    id: ObjectId::from_hex(b"dfa37ec69ffae3abcf7efbb386226cb84b510fa8").unwrap()
+                    entry_type: TreeEntryType::File,
+                    content: (
+                        ObjectId::from_hex(b"dfa37ec69ffae3abcf7efbb386226cb84b510fa8").unwrap(),
+                        ObjectId::zero()
+                    )
                 }
             ]
             .into_iter()
@@ -306,24 +417,32 @@ mod tests {
             .commit("a commit", "a user", "an-email", "2000-01-01T00:00:00Z")
             .unwrap();
         let after = head_tree(&repo);
-        let the_diff = block_on(diff(&before, &after)).unwrap();
+        let the_diff = block_on(diff_trees(&before, &after)).unwrap();
         assert_eq!(
             the_diff.into_iter().collect::<BTreeSet<_>>(),
             vec![DiffEntry::Both {
                 path: Path(b"dir/a".to_vec()),
-                left_id: ObjectId::from_hex(b"e69de29bb2d1d6434b8b29ae775ad8c2e48c5391").unwrap(),
-                right_id: ObjectId::from_hex(b"7c0646bfd53c1f0ed45ffd81563f30017717ca58").unwrap(),
+                left_type: TreeEntryType::File,
+                right_type: TreeEntryType::File,
+                content: (
+                    ObjectId::from_hex(b"e69de29bb2d1d6434b8b29ae775ad8c2e48c5391").unwrap(),
+                    ObjectId::from_hex(b"7c0646bfd53c1f0ed45ffd81563f30017717ca58").unwrap(),
+                )
             },]
             .into_iter()
             .collect()
         );
-        let the_diff = block_on(diff(&after, &before)).unwrap();
+        let the_diff = block_on(diff_trees(&after, &before)).unwrap();
         assert_eq!(
             the_diff.into_iter().collect::<BTreeSet<_>>(),
             vec![DiffEntry::Both {
                 path: Path(b"dir/a".to_vec()),
-                left_id: ObjectId::from_hex(b"7c0646bfd53c1f0ed45ffd81563f30017717ca58").unwrap(),
-                right_id: ObjectId::from_hex(b"e69de29bb2d1d6434b8b29ae775ad8c2e48c5391").unwrap(),
+                left_type: TreeEntryType::File,
+                right_type: TreeEntryType::File,
+                content: (
+                    ObjectId::from_hex(b"7c0646bfd53c1f0ed45ffd81563f30017717ca58").unwrap(),
+                    ObjectId::from_hex(b"e69de29bb2d1d6434b8b29ae775ad8c2e48c5391").unwrap(),
+                ),
             },]
             .into_iter()
             .collect()
@@ -350,41 +469,65 @@ mod tests {
             .commit("a commit", "a user", "an-email", "2000-01-01T00:00:00Z")
             .unwrap();
         let after = head_tree(&repo);
-        let the_diff = block_on(diff(&before, &after)).unwrap();
+        let the_diff = block_on(diff_trees(&before, &after)).unwrap();
         assert_eq!(
             the_diff.into_iter().collect::<BTreeSet<_>>(),
             vec![
                 DiffEntry::RightOnly {
                     path: Path(b"a/b".to_vec()),
-                    id: ObjectId::from_hex(b"e69de29bb2d1d6434b8b29ae775ad8c2e48c5391").unwrap(),
+                    entry_type: TreeEntryType::File,
+                    content: (
+                        ObjectId::zero(),
+                        ObjectId::from_hex(b"e69de29bb2d1d6434b8b29ae775ad8c2e48c5391").unwrap(),
+                    )
                 },
                 DiffEntry::LeftOnly {
                     path: Path(b"a".to_vec()),
-                    id: ObjectId::from_hex(b"e69de29bb2d1d6434b8b29ae775ad8c2e48c5391").unwrap(),
+                    entry_type: TreeEntryType::File,
+                    content: (
+                        ObjectId::from_hex(b"e69de29bb2d1d6434b8b29ae775ad8c2e48c5391").unwrap(),
+                        ObjectId::zero()
+                    )
                 },
                 DiffEntry::RightOnly {
                     path: Path(b"dir/c".to_vec()),
-                    id: ObjectId::from_hex(b"e69de29bb2d1d6434b8b29ae775ad8c2e48c5391").unwrap(),
+                    entry_type: TreeEntryType::File,
+                    content: (
+                        ObjectId::zero(),
+                        ObjectId::from_hex(b"e69de29bb2d1d6434b8b29ae775ad8c2e48c5391").unwrap(),
+                    )
                 },
             ]
             .into_iter()
             .collect()
         );
-        let the_diff = block_on(diff(&after, &before)).unwrap();
+        let the_diff = block_on(diff_trees(&after, &before)).unwrap();
         assert_eq!(
             the_diff.into_iter().collect::<BTreeSet<_>>(),
             vec![
                 DiffEntry::LeftOnly {
                     path: Path(b"a/b".to_vec()),
-                    id: ObjectId::from_hex(b"e69de29bb2d1d6434b8b29ae775ad8c2e48c5391").unwrap(),
+                    entry_type: TreeEntryType::File,
+                    content: (
+                        ObjectId::from_hex(b"e69de29bb2d1d6434b8b29ae775ad8c2e48c5391").unwrap(),
+                        ObjectId::zero()
+                    )
                 },
                 DiffEntry::RightOnly {
                     path: Path(b"a".to_vec()),
-                    id: ObjectId::from_hex(b"e69de29bb2d1d6434b8b29ae775ad8c2e48c5391").unwrap(),
+                    entry_type: TreeEntryType::File,
+                    content: (
+                        ObjectId::zero(),
+                        ObjectId::from_hex(b"e69de29bb2d1d6434b8b29ae775ad8c2e48c5391").unwrap(),
+                    )
                 },
                 DiffEntry::LeftOnly {
                     path: Path(b"dir/c".to_vec()),
-                    id: ObjectId::from_hex(b"e69de29bb2d1d6434b8b29ae775ad8c2e48c5391").unwrap(),
+                    entry_type: TreeEntryType::File,
+                    content: (
+                        ObjectId::from_hex(b"e69de29bb2d1d6434b8b29ae775ad8c2e48c5391").unwrap(),
+                        ObjectId::zero()
+                    )
                 },
             ]
             .into_iter()

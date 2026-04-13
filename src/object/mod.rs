@@ -59,6 +59,10 @@ impl ObjectId {
         Self { id }
     }
 
+    pub const fn zero() -> Self {
+        Self { id: [0u8; 20] }
+    }
+
     pub(crate) fn parse(input: &[u8]) -> ParseResult<&[u8], Self> {
         take(40usize)
             .and_then(all_consuming(hex_digit0))
