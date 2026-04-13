@@ -29,7 +29,7 @@ async fn find_object_idx<F: File>(file: &mut F, id: ObjectId) -> GResult<Option<
     file.read_segment(fanout + 4 * 0xff, &mut buf).await?;
     let total_objects = u32::from_be_bytes(buf);
 
-    let first_oid_byte = id.0[0];
+    let first_oid_byte = id.id()[0];
     let fanout_oid: Offset = fanout + 4 * u64::from(first_oid_byte);
 
     let prev_fanout_entry = if first_oid_byte == 0 {
@@ -51,7 +51,7 @@ async fn find_object_idx<F: File>(file: &mut F, id: ObjectId) -> GResult<Option<
         let mid_idx: u32 = (lower_idx + upper_idx) / 2;
         let mid_offset: Offset = ids_offset + u64::from(mid_idx) * 20;
         file.read_segment(mid_offset, &mut buf).await?;
-        match buf.cmp(&id.0) {
+        match buf.cmp(id.id()) {
             Ordering::Equal => {
                 obj_idx = Some(mid_idx);
             }
@@ -110,19 +110,19 @@ mod tests {
         let mut idx_file = repo.pack_idx_file(&pack_id).unwrap();
         let obj_idx = block_on(find_object_idx(
             &mut idx_file,
-            ObjectId(hex!("78dc5b70bd81aa46ec7dfce87a69826e354a916b")),
+            ObjectId::new(hex!("78dc5b70bd81aa46ec7dfce87a69826e354a916b")),
         ))
         .unwrap();
         assert!(obj_idx.is_some());
         let null_obj_idx = block_on(find_object_idx(
             &mut idx_file,
-            ObjectId(hex!("0000000000000000000000000000000000000000")),
+            ObjectId::new(hex!("0000000000000000000000000000000000000000")),
         ))
         .unwrap();
         assert_eq!(null_obj_idx, None);
         let similar_obj_idx = block_on(find_object_idx(
             &mut idx_file,
-            ObjectId(hex!("7800000000000000000000000000000000000000")),
+            ObjectId::new(hex!("7800000000000000000000000000000000000000")),
         ))
         .unwrap();
         assert_eq!(similar_obj_idx, None);
@@ -135,7 +135,7 @@ mod tests {
         let mut idx_file = repo.pack_idx_file(&pack_id).unwrap();
         let (object_idx, total_objects) = block_on(find_object_idx(
             &mut idx_file,
-            ObjectId(hex!("78dc5b70bd81aa46ec7dfce87a69826e354a916b")),
+            ObjectId::new(hex!("78dc5b70bd81aa46ec7dfce87a69826e354a916b")),
         ))
         .unwrap()
         .unwrap();
@@ -190,7 +190,7 @@ mod tests {
             .to_vec();
         assert_eq!(head_id, b"7e352726d6addfb0da5e3990393975188c5625ab");
         let expected_blob_id_another_huge_file =
-            ObjectId(hex!("ead5be8e71f3cb2e585e14436087fd84119dd354"));
+            ObjectId::new(hex!("ead5be8e71f3cb2e585e14436087fd84119dd354"));
         repo.run_git(["gc"]).unwrap();
         let pack_file_id = get_pack_id(&repo).unwrap();
         let mut idx_file = repo.pack_idx_file(&pack_file_id).unwrap();

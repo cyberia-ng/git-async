@@ -19,7 +19,7 @@ async fn get_loose_object_file<D: Directory>(
     repo: &Repo<D>,
     id: ObjectId,
 ) -> GResult<Option<D::File>> {
-    let (prefix, suffix) = id.0.split_at(1);
+    let (prefix, suffix) = id.id().split_at(1);
     let mut prefix_buf = [0u8; 2];
     hex::encode_to_slice(prefix, &mut prefix_buf)?;
     let mut suffix_buf = [0u8; 2 * 19];
@@ -128,7 +128,7 @@ a commit
         let repo = test_repo.repo();
         let object = block_on(read_loose_object(
             &repo,
-            ObjectId(hex!("0000000000000000000000000000000000000000")),
+            ObjectId::new(hex!("0000000000000000000000000000000000000000")),
         ))
         .unwrap();
         assert!(object.is_none());

@@ -60,7 +60,7 @@ fn read_obj_type_size(buf: &[u8]) -> IResult<(usize, PackObjectType, ObjectSize)
                     base_offset_neg: PackNegativeOffset(0),
                 },
                 0b01110000 => PackObjectType::RefDelta {
-                    base_id: ObjectId([0; 20]),
+                    base_id: ObjectId::new([0; 20]),
                 },
                 _ => return Err(InternalObjectError::MalformedPackObject),
             });
@@ -168,9 +168,9 @@ async fn read_pack_object_header<F: File>(
         }
         PackObjectType::RefDelta { ref mut base_id } => {
             let bytes_read = pack_file
-                .read_segment(offset + pos as u64, &mut base_id.0)
+                .read_segment(offset + pos as u64, &mut base_id.id)
                 .await?;
-            if bytes_read != base_id.0.len() {
+            if bytes_read != base_id.id.len() {
                 return Err(InternalObjectError::MalformedPackObject);
             }
             pos += bytes_read;

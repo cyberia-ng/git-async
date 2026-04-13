@@ -215,7 +215,9 @@ mod test {
         let (_, parsed) = RefType::parse_loose_ref(content).unwrap();
         assert_eq!(
             parsed,
-            RefType::Direct(ObjectId(hex!("6121d0b97779278fcc32cc8a02754e7c588d9c18"),))
+            RefType::Direct(ObjectId::new(hex!(
+                "6121d0b97779278fcc32cc8a02754e7c588d9c18"
+            )))
         );
     }
 

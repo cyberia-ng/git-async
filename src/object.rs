@@ -26,13 +26,16 @@ pub use crate::object_store::{ObjectSize, ObjectType};
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub struct ObjectId(pub [u8; 20]);
+#[derive(Clone, Copy, PartialEq, Eq, Accessors)]
+pub struct ObjectId {
+    #[access(get)]
+    pub(crate) id: [u8; 20],
+}
 
 impl alloc::fmt::Display for ObjectId {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut chars = [0u8; 40];
-        hex::encode_to_slice(self.0, &mut chars).unwrap();
+        hex::encode_to_slice(self.id, &mut chars).unwrap();
         write!(f, "{}", str::from_utf8(&chars).unwrap())
     }
 }
@@ -46,13 +49,17 @@ impl alloc::fmt::Debug for ObjectId {
 }
 
 impl ObjectId {
+    pub const fn new(id: [u8; 20]) -> Self {
+        Self { id }
+    }
+
     pub(crate) fn parse(input: &[u8]) -> ParseResult<&[u8], Self> {
         take(40usize)
             .and_then(all_consuming(hex_digit0))
             .map_res(|hex_str| {
                 let mut buf = [0u8; 20];
                 hex::decode_to_slice(hex_str, &mut buf)?;
-                Ok::<ObjectId, hex::FromHexError>(ObjectId(buf))
+                Ok::<ObjectId, hex::FromHexError>(ObjectId::new(buf))
             })
             .parse(input)
     }
@@ -520,7 +527,7 @@ impl TreeEntry {
         let mut p = (
             terminated(entry_type_parser, char(' ')),
             terminated(take_till(|c| c == b'\0'), char('\0')),
-            take(20usize).map(|bytes| ObjectId(<[u8; 20]>::try_from(bytes).unwrap())),
+            take(20usize).map(|bytes| ObjectId::new(<[u8; 20]>::try_from(bytes).unwrap())),
         );
         let (rest, (entry_type, name, id)) = p.parse(input)?;
         Ok((
@@ -559,7 +566,7 @@ mod tests {
     use futures::executor::block_on;
     use hex_literal::hex;
 
-    const ZERO_OID: ObjectId = ObjectId([0; 20]);
+    const ZERO_OID: ObjectId = ObjectId::new([0; 20]);
 
     fn dummy_repo() -> Repo<TestRepoDirectory> {
         TestRepo::new().unwrap().repo()
@@ -617,7 +624,7 @@ a commit
         assert_eq!(&commit.parents, &[]);
         assert_eq!(
             commit.tree,
-            ObjectId(hex!("3a4df67dd7fd7cb3ca82d9896dbdd28053d39bdb"),)
+            ObjectId::new(hex!("3a4df67dd7fd7cb3ca82d9896dbdd28053d39bdb"),)
         );
         assert_eq!(str::from_utf8(&commit.author_name).unwrap(), "a-user");
         assert_eq!(
@@ -662,7 +669,9 @@ another commit
         };
         assert_eq!(
             &commit.parents,
-            &[ObjectId(hex!("16dafd3d0ba5af72f035d641c076a4150eda548d"),)]
+            &[ObjectId::new(hex!(
+                "16dafd3d0ba5af72f035d641c076a4150eda548d"
+            ),)]
         );
     }
 
@@ -712,7 +721,7 @@ a message
         };
         assert_eq!(
             tag.target,
-            ObjectId(hex!("eedeffb6da16ddc3fb61b2255a8259cacc045691"),)
+            ObjectId::new(hex!("eedeffb6da16ddc3fb61b2255a8259cacc045691"),)
         );
         assert_eq!(tag.tag_type, TagType::Commit);
         assert_eq!(tag.name, b"annotated-tag");
@@ -812,27 +821,27 @@ a tag
         let expected_entries = [
             TreeEntry {
                 entry_type: TreeEntryType::Tree,
-                id: ObjectId(hex!("3a4df67dd7fd7cb3ca82d9896dbdd28053d39bdb")),
+                id: ObjectId::new(hex!("3a4df67dd7fd7cb3ca82d9896dbdd28053d39bdb")),
                 name: Vec::from(b"a-directory"),
             },
             TreeEntry {
                 entry_type: TreeEntryType::File,
-                id: ObjectId(hex!("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391")),
+                id: ObjectId::new(hex!("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391")),
                 name: Vec::from(b"a-file"),
             },
             TreeEntry {
                 entry_type: TreeEntryType::Symlink,
-                id: ObjectId(hex!("7c35e066a9001b24677ae572214d292cebc55979")),
+                id: ObjectId::new(hex!("7c35e066a9001b24677ae572214d292cebc55979")),
                 name: Vec::from(b"a-symlink"),
             },
             TreeEntry {
                 entry_type: TreeEntryType::Executable,
-                id: ObjectId(hex!("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391")),
+                id: ObjectId::new(hex!("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391")),
                 name: Vec::from(b"an-executable-file"),
             },
             TreeEntry {
                 entry_type: TreeEntryType::Commit,
-                id: ObjectId(hex!("91ca81cfccb6f88a34807e9810bb0be409f32d70")),
+                id: ObjectId::new(hex!("91ca81cfccb6f88a34807e9810bb0be409f32d70")),
                 name: Vec::from(b"a-commit"),
             },
         ];

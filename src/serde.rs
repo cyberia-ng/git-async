@@ -10,7 +10,7 @@ impl Serialize for ObjectId {
         S: Serializer,
     {
         let mut chars = [0u8; 40];
-        hex::encode_to_slice(self.0, &mut chars).unwrap();
+        hex::encode_to_slice(self.id, &mut chars).unwrap();
         let encoded = str::from_utf8(&chars).unwrap();
         serializer.serialize_str(encoded)
     }
