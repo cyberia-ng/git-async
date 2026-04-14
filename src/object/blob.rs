@@ -19,6 +19,10 @@ impl Blob {
     pub(crate) fn new(id: ObjectId, data: Vec<u8>) -> Self {
         Blob { id, data }
     }
+
+    pub fn data_owned(self) -> Vec<u8> {
+        self.data
+    }
 }
 
 #[cfg(test)]
