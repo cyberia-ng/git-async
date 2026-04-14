@@ -16,10 +16,10 @@ use nom::{
 };
 
 #[cfg(feature = "serde")]
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum TreeEntryType {
     File,
     Executable,
@@ -29,7 +29,7 @@ pub enum TreeEntryType {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Accessors)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct TreeEntry {
     #[access(get(ty(&[u8])))]
     #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
@@ -43,7 +43,8 @@ pub struct TreeEntry {
 }
 
 #[derive(Clone, Accessors)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", serde(bound = ""))]
 pub struct Tree<'r, D> {
     #[access(get(cp))]
     id: ObjectId,

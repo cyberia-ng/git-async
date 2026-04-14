@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Accessors)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", serde(bound = ""))]
 pub struct Commit<'r, D> {
     #[access(get(cp))]
     id: ObjectId,

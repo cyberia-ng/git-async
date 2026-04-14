@@ -2,10 +2,10 @@ use crate::object::ObjectId;
 use accessory::Accessors;
 use alloc::vec::Vec;
 #[cfg(feature = "serde")]
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, PartialEq, Eq, Clone, Accessors)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Blob {
     #[access(get(cp))]
     id: ObjectId,

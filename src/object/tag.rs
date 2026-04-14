@@ -9,10 +9,10 @@ use alloc::vec::Vec;
 use chrono::{DateTime, FixedOffset};
 use nom::{Parser, combinator::all_consuming};
 #[cfg(feature = "serde")]
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum TagType {
     Commit,
     Blob,
@@ -21,7 +21,8 @@ pub enum TagType {
 }
 
 #[derive(Clone, Accessors)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", serde(bound = ""))]
 pub struct Tag<'r, D> {
     #[access(get(cp))]
     id: ObjectId,

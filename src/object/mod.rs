@@ -79,7 +79,7 @@ impl ObjectId {
 }
 
 #[derive(Clone)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "serde", serde(tag = "type"))]
 #[cfg_attr(feature = "serde", serde(bound = ""))]
 pub enum Object<'r, D> {
