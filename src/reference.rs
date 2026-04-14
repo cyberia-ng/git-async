@@ -70,7 +70,7 @@ pub struct Ref<'r, D> {
     ref_type: RefType,
 
     #[cfg_attr(feature = "serde", serde(skip))]
-    repo: &'r Repo<D>,
+    repo: Option<&'r Repo<D>>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -102,14 +102,21 @@ impl<'r, D: Directory> Ref<'r, D> {
         Ok(Self {
             name: name.clone(),
             ref_type,
-            repo,
+            repo: Some(repo),
         })
+    }
+
+    fn repo(&self) -> GResult<&'r Repo<D>> {
+        match self.repo {
+            Some(r) => Ok(r),
+            None => Err(Error::NotAnnotatedWithRepo),
+        }
     }
 
     pub async fn resolve_object_id(&self) -> GResult<ObjectId> {
         let mut target = self.clone();
         while let RefType::Symbolic(name) = target.ref_type {
-            target = self.repo.lookup_ref(&name).await?
+            target = self.repo()?.lookup_ref(&name).await?
         }
         match target.ref_type {
             RefType::Symbolic(_) => unreachable!(),
@@ -119,13 +126,13 @@ impl<'r, D: Directory> Ref<'r, D> {
 
     pub async fn peel_to_commit(&self) -> GResult<Option<Commit<'r, D>>> {
         let oid = self.resolve_object_id().await?;
-        let object = self.repo.lookup_object(oid).await?;
+        let object = self.repo()?.lookup_object(oid).await?;
         object.peel_to_commit().await
     }
 
     pub async fn peel_to_tree(&self) -> GResult<Option<Tree<'r, D>>> {
         let oid = self.resolve_object_id().await?;
-        let object = self.repo.lookup_object(oid).await?;
+        let object = self.repo()?.lookup_object(oid).await?;
         object.peel_to_tree().await
     }
 }

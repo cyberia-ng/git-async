@@ -1,4 +1,9 @@
-use crate::{object::ObjectId, parsing::ParseResult, repo::Repo};
+use crate::{
+    error::{Error, GResult},
+    object::ObjectId,
+    parsing::ParseResult,
+    repo::Repo,
+};
 use accessory::Accessors;
 use alloc::vec::Vec;
 use nom::{
@@ -48,7 +53,7 @@ pub struct Tree<'r, D> {
 
     #[allow(dead_code)] // TODO Will be useful for diffing
     #[cfg_attr(feature = "serde", serde(skip))]
-    repo: &'r Repo<D>,
+    repo: Option<&'r Repo<D>>,
 }
 
 impl TreeEntry {
@@ -84,8 +89,20 @@ impl<'r, D> Tree<'r, D> {
     ) -> impl Fn(&'a [u8]) -> ParseResult<&'a [u8], Self> {
         move |input: &'a [u8]| {
             many(0.., TreeEntry::parser)
-                .map(|entries| Tree { id, entries, repo })
+                .map(|entries| Tree {
+                    id,
+                    entries,
+                    repo: Some(repo),
+                })
                 .parse(input)
+        }
+    }
+
+    #[allow(dead_code)] // TODO Will be useful for diffing
+    pub(crate) fn repo(&self) -> GResult<&'r Repo<D>> {
+        match self.repo {
+            Some(r) => Ok(r),
+            None => Err(Error::NotAnnotatedWithRepo),
         }
     }
 }

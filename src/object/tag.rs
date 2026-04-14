@@ -1,4 +1,5 @@
 use crate::{
+    error::{Error, GResult},
     object::{ObjectHeader, ObjectId, parse_author_committer_tagger, parse_object_headers},
     parsing::{ParseError, ParseResult},
     repo::Repo,
@@ -54,7 +55,7 @@ pub struct Tag<'r, D> {
     additional_headers: Vec<ObjectHeader>,
 
     #[cfg_attr(feature = "serde", serde(skip))]
-    pub(crate) repo: &'r Repo<D>,
+    repo: Option<&'r Repo<D>>,
 }
 
 impl<'r, D> Tag<'r, D> {
@@ -110,13 +111,20 @@ impl<'r, D> Tag<'r, D> {
                     tag_date,
                     message: message.to_vec(),
                     additional_headers,
-                    repo,
+                    repo: Some(repo),
                 })
             };
             match f() {
                 None => Err(nom::Err::Failure(ParseError::MissingFields)),
                 Some(tag) => Ok((&[][..], tag)),
             }
+        }
+    }
+
+    pub(crate) fn repo(&self) -> GResult<&'r Repo<D>> {
+        match self.repo {
+            Some(r) => Ok(r),
+            None => Err(Error::NotAnnotatedWithRepo),
         }
     }
 }

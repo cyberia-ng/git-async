@@ -107,7 +107,7 @@ impl<'r, D: Directory> Object<'r, D> {
             match obj {
                 Commit(c) => return Ok(Some(c)),
                 Tag(t) => {
-                    let target = t.repo.lookup_object(t.target()).await?;
+                    let target = t.repo()?.lookup_object(t.target()).await?;
                     obj = target;
                 }
                 _ => return Ok(None),
@@ -122,11 +122,11 @@ impl<'r, D: Directory> Object<'r, D> {
             match obj {
                 Tree(t) => return Ok(Some(t)),
                 Commit(c) => {
-                    let tree = c.repo.lookup_object(c.tree()).await?;
+                    let tree = c.repo()?.lookup_object(c.tree()).await?;
                     obj = tree;
                 }
                 Tag(t) => {
-                    let target = t.repo.lookup_object(t.target()).await?;
+                    let target = t.repo()?.lookup_object(t.target()).await?;
                     obj = target;
                 }
                 Blob(_) => return Ok(None),

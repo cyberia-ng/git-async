@@ -30,6 +30,7 @@ pub enum Error {
     MissingObject(ObjectId),
     ObjectTooLarge(ObjectId),
     UnexpectedThinPack,
+    NotAnnotatedWithRepo,
 }
 
 #[derive(Debug)]
