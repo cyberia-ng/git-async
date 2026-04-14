@@ -25,9 +25,7 @@ pub(crate) async fn lookup_size_type<D: Directory>(
     if opt_size_type.is_some() {
         return Ok(opt_size_type);
     }
-    let (mut pack, offset) = if let Some(pieces) = find_packed_object(repo, id).await? {
-        pieces
-    } else {
+    let Some((mut pack, offset)) = find_packed_object(repo, id).await? else {
         return Ok(None);
     };
     let (_, object_type, final_object) = form_deltified_chain(&mut pack, offset)
@@ -44,9 +42,7 @@ pub(crate) async fn lookup<D: Directory>(
     if loose_object.is_some() {
         return Ok(loose_object);
     }
-    let (mut indexed_pack, offset) = if let Some(pieces) = find_packed_object(repo, id).await? {
-        pieces
-    } else {
+    let Some((mut indexed_pack, offset)) = find_packed_object(repo, id).await? else {
         return Ok(None);
     };
     let (chain, object_type, final_object) = form_deltified_chain(&mut indexed_pack, offset)
@@ -103,7 +99,7 @@ pub(crate) async fn find_packed_object<D: Directory>(
                 },
                 offset,
             )));
-        };
+        }
     }
     Ok(None)
 }

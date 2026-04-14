@@ -47,38 +47,39 @@ fn read_obj_type_size(buf: &[u8]) -> IResult<(usize, PackObjectType, ObjectSize)
     let mut object_type: Option<PackObjectType> = None;
     let mut obj_size = ObjectSize(0);
     let mut done_accumulating_size = false;
-    for buf_byte in buf.iter() {
-        done_accumulating_size = (0b10000000 & *buf_byte) == 0;
+    for buf_byte in buf {
+        done_accumulating_size = (0b1000_0000 & *buf_byte) == 0;
         if pos == 0 {
-            let obj_type_id = 0b01110000 & *buf_byte;
+            let obj_type_id = 0b0111_0000 & *buf_byte;
             object_type = Some(match obj_type_id {
-                0b00010000 => PackObjectType::Base(ObjectType::Commit),
-                0b00100000 => PackObjectType::Base(ObjectType::Tree),
-                0b00110000 => PackObjectType::Base(ObjectType::Blob),
-                0b01000000 => PackObjectType::Base(ObjectType::Tag),
-                0b01100000 => PackObjectType::OffsetDelta {
+                0b0001_0000 => PackObjectType::Base(ObjectType::Commit),
+                0b0010_0000 => PackObjectType::Base(ObjectType::Tree),
+                0b0011_0000 => PackObjectType::Base(ObjectType::Blob),
+                0b0100_0000 => PackObjectType::Base(ObjectType::Tag),
+                0b0110_0000 => PackObjectType::OffsetDelta {
                     base_offset_neg: PackNegativeOffset(0),
                 },
-                0b01110000 => PackObjectType::RefDelta {
+                0b0111_0000 => PackObjectType::RefDelta {
                     base_id: ObjectId::new([0; 20]),
                 },
                 _ => return Err(InternalObjectError::MalformedPackObject),
             });
-            let size_bits = 0b00001111 & *buf_byte;
+            let size_bits = 0b0000_1111 & *buf_byte;
             obj_size.0 = size_bits.into();
         } else {
-            let size_bits = 0b01111111 & *buf_byte;
+            let size_bits = 0b0111_1111 & *buf_byte;
             let shift: usize = 4 + 7 * (pos - 1);
-            obj_size.0 += (size_bits as u64) << shift;
+            obj_size.0 += u64::from(size_bits) << shift;
         }
         pos += 1;
         if done_accumulating_size {
             break;
         }
     }
-    if !done_accumulating_size {
-        panic!("buffer was too short to hold varsize");
-    }
+    assert!(
+        done_accumulating_size,
+        "buffer was too short to hold varsize"
+    );
     Ok((pos, object_type.unwrap(), obj_size))
 }
 
@@ -90,20 +91,21 @@ fn read_delta_offset(buf: &[u8]) -> (usize, PackNegativeOffset) {
     let mut offset = PackNegativeOffset(0);
     let mut done_accumulating_offset = false;
     for (buf_idx, buf_byte) in buf.iter().enumerate() {
-        done_accumulating_offset = (0b10000000 & *buf_byte) == 0;
+        done_accumulating_offset = (0b1000_0000 & *buf_byte) == 0;
         if buf_idx != 0 {
             offset.0 += 1;
         }
         offset.0 <<= 7;
-        offset.0 += u64::from(buf_byte & 0b01111111);
+        offset.0 += u64::from(buf_byte & 0b0111_1111);
         bytes_read += 1;
         if done_accumulating_offset {
             break;
         }
     }
-    if !done_accumulating_offset {
-        panic!("buffer was too short to hold varsize");
-    }
+    assert!(
+        done_accumulating_offset,
+        "buffer was too short to hold varsize"
+    );
     (bytes_read, offset)
 }
 
@@ -115,18 +117,19 @@ fn read_delta_expected_size(buf: &[u8]) -> (usize, ObjectSize) {
     let mut size = ObjectSize(0);
     let mut done_accumulating_size = false;
     let mut shift = 0;
-    for buf_byte in buf.iter() {
-        done_accumulating_size = (0b10000000 & *buf_byte) == 0;
-        size.0 += u64::from(buf_byte & 0b01111111) << shift;
+    for buf_byte in buf {
+        done_accumulating_size = (0b1000_0000 & *buf_byte) == 0;
+        size.0 += u64::from(buf_byte & 0b0111_1111) << shift;
         shift += 7;
         bytes_read += 1;
         if done_accumulating_size {
             break;
         }
     }
-    if !done_accumulating_size {
-        panic!("buffer was too short to hold varsize");
-    }
+    assert!(
+        done_accumulating_size,
+        "buffer was too short to hold varsize"
+    );
     (bytes_read, size)
 }
 
@@ -272,23 +275,23 @@ fn reconstruct_deltified_object(deltified: &[u8], base: &[u8]) -> Vec<u8> {
     while pos < deltified.len() {
         let mut instruction = deltified[pos];
         pos += 1;
-        if instruction & 0b10000000 == 0 {
+        if instruction & 0b1000_0000 == 0 {
             // Append
-            let size = usize::from(instruction & 0b01111111);
+            let size = usize::from(instruction & 0b0111_1111);
             reconstructed_body.extend_from_slice(&deltified[pos..(pos + size)]);
             pos += size;
         } else {
             // Copy
             let mut offset = [0u8; 4];
             let mut size = [0u8; 4];
-            for offset_byte in offset.iter_mut() {
+            for offset_byte in &mut offset {
                 if instruction & 1 != 0 {
                     *offset_byte = deltified[pos];
                     pos += 1;
                 }
                 instruction >>= 1;
             }
-            for size_byte in size[..3].iter_mut() {
+            for size_byte in &mut size[..3] {
                 if instruction & 1 != 0 {
                     *size_byte = deltified[pos];
                     pos += 1;
@@ -537,7 +540,7 @@ a tag
         expected.extend_from_slice(&hex!("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"));
         expected.extend_from_slice(b"100644 a-file\0");
         expected.extend_from_slice(&hex!("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"));
-        for c in b'b'..(b'z' + 1) {
+        for c in b'b'..=b'z' {
             if c != b'm' && c != b't' {
                 expected.extend_from_slice(b"100644 ");
                 expected.push(c);
@@ -594,7 +597,7 @@ a tag
         expected.extend_from_slice(&hex!("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"));
         expected.extend_from_slice(b"100644 a-file\0");
         expected.extend_from_slice(&hex!("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"));
-        for c in b'b'..(b'z' + 1) {
+        for c in b'b'..=b'z' {
             if c != b'm' && c != b't' {
                 expected.extend_from_slice(b"100644 ");
                 expected.push(c);

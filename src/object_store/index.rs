@@ -48,7 +48,7 @@ async fn find_object_idx<F: File>(file: &mut F, id: ObjectId) -> GResult<Option<
     let mut upper_idx = fanout_entry; // exclusive
     let mut obj_idx: Option<u32> = None;
     while obj_idx.is_none() && lower_idx < upper_idx {
-        let mid_idx: u32 = (lower_idx + upper_idx) / 2;
+        let mid_idx: u32 = u32::midpoint(lower_idx, upper_idx);
         let mid_offset: Offset = ids_offset + u64::from(mid_idx) * 20;
         file.read_segment(mid_offset, &mut buf).await?;
         match buf.cmp(id.id()) {
@@ -79,8 +79,8 @@ async fn get_obj_packfile_offset<F: File>(
     let short_entry: Offset = short_table + u64::from(obj_idx) * 4;
     idx_file.read_segment(short_entry, &mut buf).await?;
     let packfile_offset_short = u32::from_be_bytes(buf);
-    if packfile_offset_short & 0x80000000 != 0 {
-        let long_table_idx: u32 = packfile_offset_short & 0x7fffffff;
+    if packfile_offset_short & 0x8000_0000 != 0 {
+        let long_table_idx: u32 = packfile_offset_short & 0x7fff_ffff;
         let long_table: Offset = short_table + 4 * u64::from(total_objects);
         let long_entry: Offset = long_table + 8 * u64::from(long_table_idx);
         let mut buf = [0u8; 8];
@@ -147,13 +147,12 @@ mod tests {
         .unwrap();
     }
 
-    #[ignore]
+    #[ignore = "takes a long time and requires many GiB of disk space"]
     #[test]
     fn test_get_obj_packfile_offset_huge() {
-        // This test takes a long time and requires many GiB of disk space. Run it by passing
-        // --ignored to cargo test
+        const MEGABYTE: usize = 1024 * 1024;
         let repo = make_basic_repo().unwrap();
-        let mut buf = vec![0u8; 1048576];
+        let mut buf = vec![0u8; MEGABYTE];
         let mut rng = Pcg32::seed_from_u64(0);
 
         let mut huge_file_1 = make_file(&repo, "a-huge-file").unwrap();
@@ -170,9 +169,9 @@ mod tests {
         huge_file_2.flush().unwrap();
 
         let metadata_1 = huge_file_1.metadata().unwrap();
-        assert_eq!(metadata_1.len(), 2048 * 1048576);
+        assert_eq!(metadata_1.len(), 2048 * MEGABYTE as u64);
         let metadata_2 = huge_file_1.metadata().unwrap();
-        assert_eq!(metadata_2.len(), 2048 * 1048576);
+        assert_eq!(metadata_2.len(), 2048 * MEGABYTE as u64);
         repo.run_git(["add", "a-huge-file"]).unwrap();
         repo.run_git(["add", "another-huge-file"]).unwrap();
 
@@ -206,6 +205,6 @@ mod tests {
             total_objects,
         ))
         .unwrap();
-        assert!(pack_offset.0 >= 0x80000000);
+        assert!(pack_offset.0 >= 0x8000_0000);
     }
 }

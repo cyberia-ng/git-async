@@ -43,9 +43,7 @@ pub(crate) async fn read_loose_object_size_type<D: Directory>(
     id: ObjectId,
 ) -> GResult<Option<(ObjectSize, ObjectType)>> {
     let file = get_loose_object_file(repo, id).await?;
-    let mut file = if let Some(file) = file {
-        file
-    } else {
+    let Some(mut file) = file else {
         return Ok(None);
     };
     let mut buf = [0u8; 32];
@@ -59,9 +57,7 @@ pub(crate) async fn read_loose_object<D: Directory>(
     id: ObjectId,
 ) -> GResult<Option<RawObject>> {
     let file = get_loose_object_file(repo, id).await?;
-    let mut file = if let Some(file) = file {
-        file
-    } else {
+    let Some(mut file) = file else {
         return Ok(None);
     };
     let data = file.read_all().await?;

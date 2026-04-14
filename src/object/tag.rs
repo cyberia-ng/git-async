@@ -92,7 +92,7 @@ impl<'r, D> Tag<'r, D> {
                 match name.as_slice() {
                     b"object" => {
                         let (_, object_id) = all_consuming(ObjectId::parse).parse(&value)?;
-                        object = Some(object_id)
+                        object = Some(object_id);
                     }
                     b"type" => {
                         tag_type = match value.as_slice() {

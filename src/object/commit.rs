@@ -264,6 +264,6 @@ the commit message
                     value: b"a long line-wrapped value".to_vec()
                 },
             ]
-        )
+        );
     }
 }

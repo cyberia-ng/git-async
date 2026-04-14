@@ -50,9 +50,7 @@ impl alloc::fmt::Display for ObjectId {
 
 impl alloc::fmt::Debug for ObjectId {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_tuple("ObjectId")
-            .field(&format!("{}", self))
-            .finish()
+        f.debug_tuple("ObjectId").field(&format!("{self}")).finish()
     }
 }
 
@@ -89,7 +87,7 @@ pub enum Object<'r, D> {
     Blob(Blob),
 }
 
-impl<'r, D> Object<'r, D> {
+impl<D> Object<'_, D> {
     pub fn id(&self) -> ObjectId {
         use Object::*;
         match self {
@@ -159,8 +157,7 @@ impl<'r, D: Directory> Object<'r, D> {
             .parse(body.as_ref())
             .map_err(|e| match e {
                 nom::Err::Incomplete(_) => unreachable!(),
-                nom::Err::Error(e) => InternalObjectError::from(e),
-                nom::Err::Failure(e) => InternalObjectError::from(e),
+                nom::Err::Error(e) | nom::Err::Failure(e) => InternalObjectError::from(e),
             })
             .map_err(annotate_with_object_id(id))?;
         Ok(object)
@@ -287,14 +284,12 @@ mod tests {
         let repo = test_repo.repo();
         let head = block_on(repo.head()).unwrap();
         let oid = block_on(head.resolve_object_id()).unwrap();
-        let commit = match block_on(repo.lookup_object(oid)).unwrap() {
-            Object::Commit(commit) => commit,
-            _ => panic!(),
+        let Object::Commit(commit) = block_on(repo.lookup_object(oid)).unwrap() else {
+            panic!()
         };
         let tree_id = commit.tree();
-        let tree = match block_on(repo.lookup_object(tree_id)).unwrap() {
-            Object::Tree(tree) => tree,
-            _ => panic!(),
+        let Object::Tree(tree) = block_on(repo.lookup_object(tree_id)).unwrap() else {
+            panic!()
         };
         assert_eq!(tree.entries().len(), 1 + 26 - 2);
     }

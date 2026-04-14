@@ -74,7 +74,7 @@ pub fn get_pack_id(repo: &TestRepo) -> io::Result<Vec<u8>> {
                 .as_bytes()
                 .strip_prefix(b"pack-")
                 .and_then(|s| s.strip_suffix(b".idx"))
-                .map(|s| s.to_vec())
+                .map(<[u8]>::to_vec)
         })
         .collect::<Vec<_>>();
     assert_eq!(pack_ids.len(), 1);

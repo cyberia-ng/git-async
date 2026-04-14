@@ -117,7 +117,7 @@ impl<'r, D: Directory> Ref<'r, D> {
     pub async fn resolve_object_id(&self) -> GResult<ObjectId> {
         let mut target = self.clone();
         while let RefType::Symbolic(name) = target.ref_type {
-            target = self.repo()?.lookup_ref(&name).await?
+            target = self.repo()?.lookup_ref(&name).await?;
         }
         match target.ref_type {
             RefType::Symbolic(_) => unreachable!(),
@@ -181,9 +181,7 @@ pub(crate) async fn lookup_loose_ref<D: Directory>(
     repo: &Repo<D>,
     name: &RefName,
 ) -> GResult<Option<RefType>> {
-    let mut ref_file = if let Some(file) = name.open_loose_ref(repo).await? {
-        file
-    } else {
+    let Some(mut ref_file) = name.open_loose_ref(repo).await? else {
         return Ok(None);
     };
     let ref_content = ref_file.read_all().await?;

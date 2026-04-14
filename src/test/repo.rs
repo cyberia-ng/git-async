@@ -163,7 +163,7 @@ impl TestRepo {
             .join(".git")
             .join("objects")
             .join("pack")
-            .to_path_buf()
+            .clone()
     }
 
     pub fn pack_idx_file(&self, pack_id: &[u8]) -> io::Result<TestRepoFile> {

@@ -17,7 +17,7 @@ impl Serialize for ObjectId {
 }
 
 struct ObjectIdVisitor;
-impl<'de> Visitor<'de> for ObjectIdVisitor {
+impl Visitor<'_> for ObjectIdVisitor {
     type Value = ObjectId;
 
     fn expecting(&self, formatter: &mut alloc::fmt::Formatter) -> alloc::fmt::Result {
@@ -52,7 +52,7 @@ impl<'a> From<&'a [u8]> for MaybeUtf8<'a> {
     }
 }
 
-impl<'a> serde::Serialize for MaybeUtf8<'a> {
+impl serde::Serialize for MaybeUtf8<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use MaybeUtf8::*;
         match self {

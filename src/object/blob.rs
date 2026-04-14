@@ -48,10 +48,7 @@ mod tests {
         let (_, object) = Object::parser(ZERO_OID, ObjectType::Blob, &repo)
             .parse(input)
             .unwrap();
-        let blob = match object {
-            Object::Blob(blob) => blob,
-            _ => panic!(),
-        };
+        let Object::Blob(blob) = object else { panic!() };
         assert!(blob.data.is_empty());
     }
 
@@ -62,10 +59,7 @@ mod tests {
         let (_, object) = Object::parser(ZERO_OID, ObjectType::Blob, &repo)
             .parse(input)
             .unwrap();
-        let blob = match object {
-            Object::Blob(blob) => blob,
-            _ => panic!(),
-        };
+        let Object::Blob(blob) = object else { panic!() };
         assert_eq!(blob.data, b"hello world");
     }
 }
