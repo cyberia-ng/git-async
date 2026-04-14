@@ -89,7 +89,7 @@ pub enum Object<'r, D> {
     Blob(Blob),
 }
 
-impl<'r, D: Directory> Object<'r, D> {
+impl<'r, D> Object<'r, D> {
     pub fn id(&self) -> ObjectId {
         use Object::*;
         match self {
@@ -100,6 +100,18 @@ impl<'r, D: Directory> Object<'r, D> {
         }
     }
 
+    pub fn detach(self) -> Object<'static, ()> {
+        use Object::*;
+        match self {
+            Commit(commit) => Commit(commit.detach()),
+            Tree(tree) => Tree(tree.detach()),
+            Tag(tag) => Tag(tag.detach()),
+            Blob(blob) => Blob(blob),
+        }
+    }
+}
+
+impl<'r, D: Directory> Object<'r, D> {
     pub async fn peel_to_commit(&self) -> GResult<Option<Commit<'r, D>>> {
         use Object::*;
         let mut obj = self.clone();

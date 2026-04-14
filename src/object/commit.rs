@@ -59,6 +59,23 @@ pub struct Commit<'r, D> {
 }
 
 impl<'r, D> Commit<'r, D> {
+    pub fn detach(self) -> Commit<'static, ()> {
+        Commit {
+            id: self.id,
+            tree: self.tree,
+            parents: self.parents,
+            author_name: self.author_name,
+            author_email: self.author_email,
+            author_date: self.author_date,
+            committer_name: self.committer_name,
+            committer_email: self.committer_email,
+            commit_date: self.commit_date,
+            message: self.message,
+            additional_headers: self.additional_headers,
+            repo: None,
+        }
+    }
+
     pub(crate) fn parser<'a>(
         id: ObjectId,
         repo: &'r Repo<D>,

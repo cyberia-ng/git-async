@@ -84,6 +84,14 @@ impl TreeEntry {
 }
 
 impl<'r, D> Tree<'r, D> {
+    pub fn detach(self) -> Tree<'static, ()> {
+        Tree {
+            id: self.id,
+            entries: self.entries,
+            repo: None,
+        }
+    }
+
     pub(crate) fn parser<'a>(
         id: ObjectId,
         repo: &'r Repo<D>,

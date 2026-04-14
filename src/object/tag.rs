@@ -60,6 +60,21 @@ pub struct Tag<'r, D> {
 }
 
 impl<'r, D> Tag<'r, D> {
+    pub fn detach(self) -> Tag<'static, ()> {
+        Tag {
+            id: self.id,
+            target: self.target,
+            tag_type: self.tag_type,
+            name: self.name,
+            tagger_name: self.tagger_name,
+            tagger_email: self.tagger_email,
+            tag_date: self.tag_date,
+            message: self.message,
+            additional_headers: self.additional_headers,
+            repo: None,
+        }
+    }
+
     pub(crate) fn parser<'a>(
         id: ObjectId,
         repo: &'r Repo<D>,
