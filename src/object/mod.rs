@@ -34,7 +34,7 @@ pub use crate::object::tag::{Tag, TagType};
 pub use crate::object::tree::{Tree, TreeEntry, TreeEntryType};
 pub use crate::object_store::{ObjectSize, ObjectType};
 
-#[derive(Clone, Copy, PartialEq, Eq, Accessors)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Accessors)]
 pub struct ObjectId {
     #[access(get)]
     pub(crate) id: [u8; 20],
