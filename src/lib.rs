@@ -1,4 +1,10 @@
+//! This is a crate :)
+
+#![warn(missing_docs)]
 #![cfg_attr(not(test), no_std)]
+#[cfg(doc)]
+extern crate std;
+
 extern crate alloc;
 
 pub mod error;
