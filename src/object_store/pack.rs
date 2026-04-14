@@ -266,11 +266,7 @@ fn reconstruct_deltified_object(deltified: &[u8], base: &[u8]) -> Vec<u8> {
     let mut reconstructed_body: Vec<u8> = Vec::new();
     let (bytes_read, base_object_size) = read_delta_expected_size(&deltified[pos..]);
     pos += bytes_read;
-    debug_assert_eq!(
-        base_object_size.0,
-        base.len().try_into().unwrap(),
-        "base size"
-    );
+    debug_assert_eq!(base_object_size.0, base.len() as u64, "base size");
     let (bytes_read, reconstructed_body_size) = read_delta_expected_size(&deltified[pos..]);
     pos += bytes_read;
     while pos < deltified.len() {
@@ -308,8 +304,8 @@ fn reconstruct_deltified_object(deltified: &[u8], base: &[u8]) -> Vec<u8> {
         }
     }
     debug_assert_eq!(
-        reconstructed_body.len(),
-        reconstructed_body_size.0.try_into().unwrap(),
+        reconstructed_body_size.0,
+        reconstructed_body.len() as u64,
         "reconstructed size"
     );
     reconstructed_body

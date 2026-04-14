@@ -21,7 +21,7 @@ use nom::{
     sequence::{delimited, preceded, terminated},
 };
 #[cfg(feature = "serde")]
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 mod blob;
 mod commit;
@@ -187,7 +187,7 @@ impl<'r, D: Directory> Object<'r, D> {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Accessors)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct ObjectHeader {
     #[access(get(ty(&[u8])))]
     #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]

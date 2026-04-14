@@ -10,10 +10,10 @@ use chrono::{DateTime, FixedOffset};
 use nom::{Parser, combinator::all_consuming};
 
 #[cfg(feature = "serde")]
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Accessors)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Commit<'r, D> {
     #[access(get(cp))]
     id: ObjectId,
@@ -155,8 +155,8 @@ committer another-user <another-email-address> 1774735019 -0800
 a commit
 ";
         let (rest, commit) = Commit::parser(ZERO_OID, &repo).parse(data).unwrap();
-        assert_eq!(rest, &[]);
-        assert_eq!(&commit.parents, &[]);
+        assert!(rest.is_empty());
+        assert!(commit.parents.is_empty());
         assert_eq!(
             commit.tree,
             ObjectId::new(hex!("3a4df67dd7fd7cb3ca82d9896dbdd28053d39bdb"),)

@@ -48,7 +48,7 @@ mod tests {
             Object::Blob(blob) => blob,
             _ => panic!(),
         };
-        assert_eq!(blob.data, &[]);
+        assert!(blob.data.is_empty());
     }
 
     #[test]
