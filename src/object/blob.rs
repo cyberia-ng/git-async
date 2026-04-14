@@ -11,7 +11,7 @@ pub struct Blob {
     id: ObjectId,
 
     #[access(get(ty(&[u8])))]
-    #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
     data: Vec<u8>,
 }
 
