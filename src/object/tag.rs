@@ -1,6 +1,7 @@
 use crate::{
     error::{Error, GResult},
-    object::{ObjectHeader, ObjectId, parse_author_committer_tagger, parse_object_headers},
+    file_system::Directory,
+    object::{Object, ObjectHeader, ObjectId, parse_author_committer_tagger, parse_object_headers},
     parsing::{ParseError, ParseResult},
     repo::Repo,
 };
@@ -57,6 +58,23 @@ pub struct Tag<'r, D> {
 
     #[cfg_attr(feature = "serde", serde(skip))]
     repo: Option<&'r Repo<D>>,
+}
+
+impl<D> PartialEq for Tag<'_, D> {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+impl<D> Eq for Tag<'_, D> {}
+impl<D> PartialOrd for Tag<'_, D> {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        self.id.partial_cmp(&other.id)
+    }
+}
+impl<D> Ord for Tag<'_, D> {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.id.cmp(&other.id)
+    }
 }
 
 impl<'r, D> Tag<'r, D> {
@@ -142,6 +160,12 @@ impl<'r, D> Tag<'r, D> {
             Some(r) => Ok(r),
             None => Err(Error::NotAnnotatedWithRepo),
         }
+    }
+}
+
+impl<'r, D: Directory> Tag<'r, D> {
+    pub async fn lookup_target(&self) -> GResult<Object<'r, D>> {
+        self.repo()?.lookup_object(self.target).await
     }
 }
 

@@ -11,6 +11,7 @@ use alloc::vec::Vec;
 /// A handle to a Git repository
 ///
 /// It is generic over the implementation of filesystem operations.
+#[derive(Debug, PartialEq, Eq)]
 pub struct Repo<D> {
     pub(crate) git_dir: D,
 }

@@ -1,6 +1,7 @@
 use crate::{
     error::{Error, GResult},
-    object::ObjectId,
+    file_system::Directory,
+    object::{Object, ObjectId},
     parsing::ParseResult,
     repo::Repo,
 };
@@ -28,9 +29,10 @@ pub enum TreeEntryType {
     Commit,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Accessors)]
+#[derive(Debug, Clone, Accessors)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct TreeEntry {
+#[cfg_attr(feature = "serde", serde(bound = ""))]
+pub struct TreeEntry<'r, D> {
     #[access(get(ty(&[u8])))]
     #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
     name: Vec<u8>,
@@ -40,6 +42,41 @@ pub struct TreeEntry {
 
     #[access(get(cp))]
     id: ObjectId,
+
+    #[cfg_attr(feature = "serde", serde(skip))]
+    repo: Option<&'r Repo<D>>,
+}
+
+impl<D> PartialEq for TreeEntry<'_, D> {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name && self.entry_type == other.entry_type && self.id == other.id
+    }
+}
+impl<D> Eq for TreeEntry<'_, D> {}
+
+impl<'r, D> TreeEntry<'r, D> {
+    pub(crate) fn repo(&self) -> GResult<&'r Repo<D>> {
+        self.repo.ok_or_else(|| Error::NotAnnotatedWithRepo)
+    }
+
+    pub fn detach(self) -> TreeEntry<'static, ()> {
+        TreeEntry {
+            name: self.name,
+            entry_type: self.entry_type,
+            id: self.id,
+            repo: None,
+        }
+    }
+}
+
+impl<'r, D: Directory> TreeEntry<'r, D> {
+    pub async fn lookup(&self) -> GResult<Option<Object<'r, D>>> {
+        if self.entry_type == TreeEntryType::Commit {
+            Ok(None)
+        } else {
+            Ok(Some(self.repo()?.lookup_object(self.id).await?))
+        }
+    }
 }
 
 #[derive(Clone, Accessors)]
@@ -49,37 +86,57 @@ pub struct Tree<'r, D> {
     #[access(get(cp))]
     id: ObjectId,
 
-    #[access(get(ty(&[TreeEntry])))]
-    entries: Vec<TreeEntry>,
+    #[access(get(ty(&[TreeEntry<'r, D>])))]
+    entries: Vec<TreeEntry<'r, D>>,
 
     #[allow(dead_code)] // TODO Will be useful for diffing
     #[cfg_attr(feature = "serde", serde(skip))]
     repo: Option<&'r Repo<D>>,
 }
 
-impl TreeEntry {
-    fn parser(input: &[u8]) -> ParseResult<&[u8], Self> {
-        let entry_type_parser = alt((
-            tag("40000").map(|_| TreeEntryType::Tree),
-            tag("100644").map(|_| TreeEntryType::File),
-            tag("100755").map(|_| TreeEntryType::Executable),
-            tag("120000").map(|_| TreeEntryType::Symlink),
-            tag("160000").map(|_| TreeEntryType::Commit),
-        ));
-        let mut p = (
-            terminated(entry_type_parser, char(' ')),
-            terminated(take_till(|c| c == b'\0'), char('\0')),
-            take(20usize).map(|bytes| ObjectId::new(<[u8; 20]>::try_from(bytes).unwrap())),
-        );
-        let (rest, (entry_type, name, id)) = p.parse(input)?;
-        Ok((
-            rest,
-            TreeEntry {
-                entry_type,
-                name: name.to_vec(),
-                id,
-            },
-        ))
+impl<D> PartialEq for Tree<'_, D> {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+impl<D> Eq for Tree<'_, D> {}
+impl<D> PartialOrd for Tree<'_, D> {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        self.id.partial_cmp(&other.id)
+    }
+}
+impl<D> Ord for Tree<'_, D> {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.id.cmp(&other.id)
+    }
+}
+
+impl<'r, D> TreeEntry<'r, D> {
+    fn parser<'a>(repo: &'r Repo<D>) -> impl Fn(&'a [u8]) -> ParseResult<&'a [u8], Self> {
+        move |input: &'a [u8]| {
+            let entry_type_parser = alt((
+                tag("40000").map(|_| TreeEntryType::Tree),
+                tag("100644").map(|_| TreeEntryType::File),
+                tag("100755").map(|_| TreeEntryType::Executable),
+                tag("120000").map(|_| TreeEntryType::Symlink),
+                tag("160000").map(|_| TreeEntryType::Commit),
+            ));
+            let mut p = (
+                terminated(entry_type_parser, char(' ')),
+                terminated(take_till(|c| c == b'\0'), char('\0')),
+                take(20usize).map(|bytes| ObjectId::new(<[u8; 20]>::try_from(bytes).unwrap())),
+            );
+            let (rest, (entry_type, name, id)) = p.parse(input)?;
+            Ok((
+                rest,
+                TreeEntry {
+                    entry_type,
+                    name: name.to_vec(),
+                    id,
+                    repo: Some(repo),
+                },
+            ))
+        }
     }
 }
 
@@ -87,7 +144,7 @@ impl<'r, D> Tree<'r, D> {
     pub fn detach(self) -> Tree<'static, ()> {
         Tree {
             id: self.id,
-            entries: self.entries,
+            entries: self.entries.into_iter().map(TreeEntry::detach).collect(),
             repo: None,
         }
     }
@@ -97,7 +154,7 @@ impl<'r, D> Tree<'r, D> {
         repo: &'r Repo<D>,
     ) -> impl Fn(&'a [u8]) -> ParseResult<&'a [u8], Self> {
         move |input: &'a [u8]| {
-            many(0.., TreeEntry::parser)
+            many(0.., TreeEntry::parser(repo))
                 .map(|entries| Tree {
                     id,
                     entries,
@@ -149,26 +206,31 @@ mod tests {
                 entry_type: TreeEntryType::Tree,
                 id: ObjectId::new(hex!("3a4df67dd7fd7cb3ca82d9896dbdd28053d39bdb")),
                 name: Vec::from(b"a-directory"),
+                repo: None,
             },
             TreeEntry {
                 entry_type: TreeEntryType::File,
                 id: ObjectId::new(hex!("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391")),
                 name: Vec::from(b"a-file"),
+                repo: None,
             },
             TreeEntry {
                 entry_type: TreeEntryType::Symlink,
                 id: ObjectId::new(hex!("7c35e066a9001b24677ae572214d292cebc55979")),
                 name: Vec::from(b"a-symlink"),
+                repo: None,
             },
             TreeEntry {
                 entry_type: TreeEntryType::Executable,
                 id: ObjectId::new(hex!("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391")),
                 name: Vec::from(b"an-executable-file"),
+                repo: None,
             },
             TreeEntry {
                 entry_type: TreeEntryType::Commit,
                 id: ObjectId::new(hex!("91ca81cfccb6f88a34807e9810bb0be409f32d70")),
                 name: Vec::from(b"a-commit"),
+                repo: None,
             },
         ];
         for (entry, expected) in zip(tree.entries.iter(), expected_entries.iter()) {

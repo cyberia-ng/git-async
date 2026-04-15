@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, PartialEq, Eq, Clone, Accessors)]
+#[derive(Debug, Clone, Accessors)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Blob {
     #[access(get(cp))]
@@ -13,6 +13,23 @@ pub struct Blob {
     #[access(get(ty(&[u8])))]
     #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
     data: Vec<u8>,
+}
+
+impl PartialEq for Blob {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+impl Eq for Blob {}
+impl PartialOrd for Blob {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        self.id.partial_cmp(&other.id)
+    }
+}
+impl Ord for Blob {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.id.cmp(&other.id)
+    }
 }
 
 impl Blob {

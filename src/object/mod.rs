@@ -76,7 +76,7 @@ impl ObjectId {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "serde", serde(tag = "type"))]
 #[cfg_attr(feature = "serde", serde(bound = ""))]
