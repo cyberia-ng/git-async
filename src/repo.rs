@@ -8,15 +8,21 @@ use crate::{
 use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
 
+/// A handle to a Git repository
+///
+/// It is generic over the implementation of filesystem operations.
 pub struct Repo<D> {
     pub(crate) git_dir: D,
 }
 
 impl<D: Directory> Repo<D> {
+    /// Open the repository located at `git_dir`.
     pub fn new(git_dir: D) -> Self {
         Repo { git_dir }
     }
 
+    /// Collect all the refs tracked by the repository. Includes HEAD, branches,
+    /// tags, remotes and the stash.
     pub async fn ref_names(&self) -> GResult<BTreeSet<RefName>> {
         let mut out: BTreeSet<RefName> = BTreeSet::new();
         out.insert(RefName::Head);
@@ -45,18 +51,24 @@ impl<D: Directory> Repo<D> {
         Ok(out)
     }
 
+    /// Get the repository's HEAD ref.
     pub async fn head(&self) -> GResult<Ref<'_, D>> {
         Ref::lookup(self, &RefName::Head).await
     }
 
+    /// Take a ref name and look up its content.
     pub async fn lookup_ref(&self, name: &RefName) -> GResult<Ref<'_, D>> {
         Ref::lookup(self, name).await
     }
 
+    /// Look up a particular object in the repository, reading the entire object
+    /// into memory.
     pub async fn lookup_object(&self, id: ObjectId) -> GResult<Object<'_, D>> {
         Object::lookup(self, id).await
     }
 
+    /// Look up the size and type of an object, without reading it to memory or
+    /// parsing its content.
     pub async fn lookup_object_size_type(&self, id: ObjectId) -> GResult<(ObjectSize, ObjectType)> {
         Object::lookup_size_type(self, id).await
     }
