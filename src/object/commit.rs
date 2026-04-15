@@ -1,7 +1,7 @@
 use crate::{
     error::{Error, GResult},
     file_system::Directory,
-    object::{Object, ObjectHeader, ObjectId, parse_author_committer_tagger, parse_object_headers},
+    object::{ObjectHeader, ObjectId, Tree, parse_author_committer_tagger, parse_object_headers},
     parsing::{ParseError, ParseResult},
     repo::Repo,
 };
@@ -170,15 +170,15 @@ impl<'r, D> Commit<'r, D> {
 }
 
 impl<'r, D: Directory> Commit<'r, D> {
-    pub async fn lookup_tree(&self) -> GResult<Object<'r, D>> {
-        self.repo()?.lookup_object(self.tree).await
+    pub async fn lookup_tree(&self) -> GResult<Tree<'r, D>> {
+        Ok(self.repo()?.lookup_object(self.tree).await?.tree()?)
     }
 
-    pub async fn lookup_parents(&self) -> GResult<Vec<Object<'r, D>>> {
+    pub async fn lookup_parents(&self) -> GResult<Vec<Commit<'r, D>>> {
         let repo = self.repo()?;
         let mut out = Vec::with_capacity(self.parents.len());
         for parent in &self.parents {
-            out.push(repo.lookup_object(*parent).await?)
+            out.push(repo.lookup_object(*parent).await?.commit()?)
         }
         Ok(out)
     }

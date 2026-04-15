@@ -1,6 +1,10 @@
 use crate::{
-    file_system::FilesystemError, object::ObjectId, parsing::ParseError, reference::RefName,
+    file_system::FilesystemError,
+    object::{ObjectId, ObjectType},
+    parsing::ParseError,
+    reference::RefName,
 };
+use accessory::Accessors;
 use alloc::vec::Vec;
 use miniz_oxide::inflate::DecompressError;
 
@@ -33,6 +37,24 @@ pub enum Error {
     ObjectTooLarge(ObjectId),
     UnexpectedThinPack,
     NotAnnotatedWithRepo,
+    UnexpectedObjectType(UnexpectedObjectType),
+}
+
+#[derive(Debug, Accessors)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub struct UnexpectedObjectType {
+    #[access(get(cp))]
+    pub(crate) id: ObjectId,
+    #[access(get(cp))]
+    pub(crate) expected: ObjectType,
+    #[access(get(cp))]
+    pub(crate) received: ObjectType,
+}
+
+impl From<UnexpectedObjectType> for Error {
+    fn from(value: UnexpectedObjectType) -> Self {
+        Self::UnexpectedObjectType(value)
+    }
 }
 
 #[derive(Debug)]

@@ -1,5 +1,5 @@
 use crate::{
-    error::{Error, GResult, InternalObjectError, annotate_with_object_id},
+    error::{Error, GResult, InternalObjectError, UnexpectedObjectType, annotate_with_object_id},
     file_system::Directory,
     object_store::{
         RawObject,
@@ -87,7 +87,7 @@ pub enum Object<'r, D> {
     Blob(Blob),
 }
 
-impl<D> Object<'_, D> {
+impl<'r, D> Object<'r, D> {
     pub fn id(&self) -> ObjectId {
         use Object::*;
         match self {
@@ -105,6 +105,64 @@ impl<D> Object<'_, D> {
             Tree(tree) => Tree(tree.detach()),
             Tag(tag) => Tag(tag.detach()),
             Blob(blob) => Blob(blob),
+        }
+    }
+
+    pub fn object_type(&self) -> ObjectType {
+        use Object::*;
+        match self {
+            Commit(_) => ObjectType::Commit,
+            Tree(_) => ObjectType::Tree,
+            Tag(_) => ObjectType::Tag,
+            Blob(_) => ObjectType::Blob,
+        }
+    }
+
+    pub fn commit(self) -> Result<Commit<'r, D>, UnexpectedObjectType> {
+        use Object::*;
+        match self {
+            Commit(c) => Ok(c),
+            _ => Err(UnexpectedObjectType {
+                id: self.id(),
+                expected: ObjectType::Commit,
+                received: self.object_type(),
+            }),
+        }
+    }
+
+    pub fn tag(self) -> Result<Tag<'r, D>, UnexpectedObjectType> {
+        use Object::*;
+        match self {
+            Tag(t) => Ok(t),
+            _ => Err(UnexpectedObjectType {
+                id: self.id(),
+                expected: ObjectType::Tag,
+                received: self.object_type(),
+            }),
+        }
+    }
+
+    pub fn tree(self) -> Result<Tree<'r, D>, UnexpectedObjectType> {
+        use Object::*;
+        match self {
+            Tree(t) => Ok(t),
+            _ => Err(UnexpectedObjectType {
+                id: self.id(),
+                expected: ObjectType::Tree,
+                received: self.object_type(),
+            }),
+        }
+    }
+
+    pub fn blob(self) -> Result<Blob, UnexpectedObjectType> {
+        use Object::*;
+        match self {
+            Blob(b) => Ok(b),
+            _ => Err(UnexpectedObjectType {
+                id: self.id(),
+                expected: ObjectType::Blob,
+                received: self.object_type(),
+            }),
         }
     }
 }

@@ -1,6 +1,7 @@
-use alloc::vec::Vec;
-
 use crate::object::ObjectId;
+use alloc::vec::Vec;
+#[cfg(feature = "serde")]
+use serde::Serialize;
 
 mod index;
 pub(crate) mod lookup;
@@ -8,6 +9,7 @@ mod loose;
 mod pack;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum ObjectType {
     Commit,
     Tag,
