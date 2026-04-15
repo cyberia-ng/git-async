@@ -1,6 +1,6 @@
 use crate::{
-    directory::{File, Offset},
     error::{Error, IResult, InternalObjectError},
+    file_system::{File, Offset},
     object::ObjectId,
     object_store::{
         ObjectSize, ObjectType, index::find_object_in_pack_index, lookup::IndexedPackFile,

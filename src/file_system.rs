@@ -7,7 +7,7 @@ pub enum DirEntry {
 }
 
 #[derive(Debug)]
-pub enum DirectoryError {
+pub enum FilesystemError {
     NotFound(Box<dyn Any>),
     Other(Box<dyn Any>),
 }
@@ -15,9 +15,9 @@ pub enum DirectoryError {
 pub trait Directory: Sized + Clone {
     type File: File;
 
-    fn open_subdir(&self, name: &[u8]) -> impl Future<Output = Result<Self, DirectoryError>>;
-    fn list_dir(&self) -> impl Future<Output = Result<Vec<DirEntry>, DirectoryError>>;
-    fn open_file(&self, name: &[u8]) -> impl Future<Output = Result<Self::File, DirectoryError>>;
+    fn open_subdir(&self, name: &[u8]) -> impl Future<Output = Result<Self, FilesystemError>>;
+    fn list_dir(&self) -> impl Future<Output = Result<Vec<DirEntry>, FilesystemError>>;
+    fn open_file(&self, name: &[u8]) -> impl Future<Output = Result<Self::File, FilesystemError>>;
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -40,12 +40,13 @@ impl core::ops::Sub<u64> for Offset {
 }
 
 pub trait File: Sized {
-    fn read_all(&mut self) -> impl Future<Output = Result<Vec<u8>, DirectoryError>>;
+    fn read_all(&mut self) -> impl Future<Output = Result<Vec<u8>, FilesystemError>>;
+
     fn read_segment(
         &mut self,
         offset: Offset,
         dest: &mut [u8],
-    ) -> impl Future<Output = Result<usize, DirectoryError>>;
+    ) -> impl Future<Output = Result<usize, FilesystemError>>;
 }
 
 pub(crate) type PathComponent = Vec<u8>;
@@ -55,7 +56,7 @@ enum SearchPath {
     Directory(Path),
 }
 
-pub(crate) async fn search_for_files<D: Directory>(root: &D) -> Result<Vec<Path>, DirectoryError> {
+pub(crate) async fn search_for_files<D: Directory>(root: &D) -> Result<Vec<Path>, FilesystemError> {
     use SearchPath::*;
     let mut out: Vec<Path> = Vec::new();
     let mut stack: Vec<SearchPath> = Vec::new();
@@ -86,7 +87,7 @@ pub(crate) async fn search_for_files<D: Directory>(root: &D) -> Result<Vec<Path>
     Ok(out)
 }
 
-async fn open_dir_path<D: Directory>(directory: &D, path: &Path) -> Result<D, DirectoryError> {
+async fn open_dir_path<D: Directory>(directory: &D, path: &Path) -> Result<D, FilesystemError> {
     let mut dir = directory.clone();
     for component in path {
         dir = dir.open_subdir(component).await?;

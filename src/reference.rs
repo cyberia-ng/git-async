@@ -1,6 +1,6 @@
 use crate::{
-    directory::{Directory, DirectoryError, File},
     error::{Error, GResult},
+    file_system::{Directory, File, FilesystemError},
     object::{Commit, ObjectId, Tree},
     parsing::ParseResult,
     repo::Repo,
@@ -47,13 +47,13 @@ impl RefName {
             .ok_or_else(|| Error::RefNotFound(self.clone()))?;
         for component in components {
             dir = match dir.open_subdir(component).await {
-                Err(DirectoryError::NotFound(_)) => return Ok(None),
+                Err(FilesystemError::NotFound(_)) => return Ok(None),
                 Err(e) => return Err(e.into()),
                 Ok(dir) => dir,
             };
         }
         match dir.open_file(file_name).await {
-            Err(DirectoryError::NotFound(_)) => Ok(None),
+            Err(FilesystemError::NotFound(_)) => Ok(None),
             Err(e) => Err(e.into()),
             Ok(file) => Ok(Some(file)),
         }

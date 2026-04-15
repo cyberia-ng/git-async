@@ -1,6 +1,6 @@
 use crate::{
-    directory::{File, Offset},
     error::{Error, GResult},
+    file_system::{File, Offset},
     object::ObjectId,
 };
 use core::cmp::Ordering;

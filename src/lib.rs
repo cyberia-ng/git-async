@@ -1,8 +1,8 @@
 #![cfg_attr(not(test), no_std)]
 extern crate alloc;
 
-pub mod directory;
 pub mod error;
+pub mod file_system;
 pub mod object;
 mod object_store;
 mod parsing;

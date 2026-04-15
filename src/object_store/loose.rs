@@ -8,8 +8,8 @@ use nom::{
 };
 
 use crate::{
-    directory::{Directory, DirectoryError, File, Offset},
     error::{Error, GResult},
+    file_system::{Directory, File, FilesystemError, Offset},
     object::ObjectId,
     object_store::{ObjectSize, ObjectType, RawObject},
     repo::Repo,
@@ -27,12 +27,12 @@ async fn get_loose_object_file<D: Directory>(
     let mut dir = repo.git_dir.open_subdir(b"objects").await?;
     dir = match dir.open_subdir(&prefix_buf).await {
         Ok(d) => d,
-        Err(DirectoryError::NotFound(_)) => return Ok(None),
+        Err(FilesystemError::NotFound(_)) => return Ok(None),
         Err(e) => return Err(e.into()),
     };
     let file = match dir.open_file(&suffix_buf).await {
         Ok(f) => f,
-        Err(DirectoryError::NotFound(_)) => return Ok(None),
+        Err(FilesystemError::NotFound(_)) => return Ok(None),
         Err(e) => return Err(e.into()),
     };
     Ok(Some(file))

@@ -1,4 +1,6 @@
-use crate::{directory::DirectoryError, object::ObjectId, parsing::ParseError, reference::RefName};
+use crate::{
+    file_system::FilesystemError, object::ObjectId, parsing::ParseError, reference::RefName,
+};
 use alloc::vec::Vec;
 use miniz_oxide::inflate::DecompressError;
 
@@ -10,7 +12,7 @@ pub type GResult<T> = core::result::Result<T, Error>;
 #[derive(Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Error {
-    Directory(#[cfg_attr(feature = "serde", serde(skip))] DirectoryError),
+    FileSystem(#[cfg_attr(feature = "serde", serde(skip))] FilesystemError),
     PathError(#[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))] Vec<u8>),
     DecompressError(#[cfg_attr(feature = "serde", serde(skip))] DecompressError),
     FromHexError(#[cfg_attr(feature = "serde", serde(skip))] hex::FromHexError),
@@ -71,15 +73,15 @@ pub(crate) fn annotate_with_object_id(id: ObjectId) -> impl Fn(InternalObjectErr
     }
 }
 
-impl From<DirectoryError> for InternalObjectError {
-    fn from(value: DirectoryError) -> Self {
+impl From<FilesystemError> for InternalObjectError {
+    fn from(value: FilesystemError) -> Self {
         Self::ExternalError(value.into())
     }
 }
 
-impl From<DirectoryError> for Error {
-    fn from(value: DirectoryError) -> Self {
-        Self::Directory(value)
+impl From<FilesystemError> for Error {
+    fn from(value: FilesystemError) -> Self {
+        Self::FileSystem(value)
     }
 }
 

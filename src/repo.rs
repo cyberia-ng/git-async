@@ -1,6 +1,6 @@
 use crate::{
-    directory::{Directory, DirectoryError, search_for_files},
     error::GResult,
+    file_system::{Directory, FilesystemError, search_for_files},
     object::{Object, ObjectId},
     object_store::{ObjectSize, ObjectType},
     reference::{Ref, RefName, read_packed_refs},
@@ -21,7 +21,7 @@ impl<D: Directory> Repo<D> {
         let mut out: BTreeSet<RefName> = BTreeSet::new();
         out.insert(RefName::Head);
         match self.git_dir.open_file(b"packed-refs").await {
-            Err(DirectoryError::NotFound(_)) => {}
+            Err(FilesystemError::NotFound(_)) => {}
             Err(e) => return Err(e.into()),
             Ok(mut packed_refs_file) => {
                 let packed_refs = read_packed_refs(&mut packed_refs_file).await?;

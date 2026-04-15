@@ -1,5 +1,5 @@
 use crate::{
-    directory::{DirEntry, Directory, DirectoryError, File, Offset},
+    file_system::{DirEntry, Directory, File, FilesystemError, Offset},
     repo::Repo,
 };
 use core::cmp::min;
@@ -184,12 +184,12 @@ impl TestRepo {
 impl Directory for TestRepoDirectory {
     type File = TestRepoFile;
 
-    async fn open_subdir(&self, name: &[u8]) -> Result<Self, DirectoryError> {
+    async fn open_subdir(&self, name: &[u8]) -> Result<Self, FilesystemError> {
         let new_sub_path = self.sub_path.join(str::from_utf8(name).unwrap());
         if let Err(e) = metadata(self.root.path().join(&new_sub_path))
             && e.kind() == io::ErrorKind::NotFound
         {
-            return Err(DirectoryError::NotFound(Box::new(e)));
+            return Err(FilesystemError::NotFound(Box::new(e)));
         }
         Ok(Self {
             root: self.root.clone(),
@@ -197,7 +197,7 @@ impl Directory for TestRepoDirectory {
         })
     }
 
-    async fn list_dir(&self) -> Result<Vec<DirEntry>, DirectoryError> {
+    async fn list_dir(&self) -> Result<Vec<DirEntry>, FilesystemError> {
         let dir = read_dir(self.root.path().join(&self.sub_path)).unwrap();
         let entries = dir
             .map_while(|entry| {
@@ -219,7 +219,7 @@ impl Directory for TestRepoDirectory {
         Ok(entries)
     }
 
-    async fn open_file(&self, name: &[u8]) -> Result<Self::File, DirectoryError> {
+    async fn open_file(&self, name: &[u8]) -> Result<Self::File, FilesystemError> {
         let file = OpenOptions::new().read(true).open(
             self.root
                 .path()
@@ -230,9 +230,9 @@ impl Directory for TestRepoDirectory {
             Ok(f) => f,
             Err(e) => {
                 if e.kind() == io::ErrorKind::NotFound {
-                    return Err(DirectoryError::NotFound(Box::new(e)));
+                    return Err(FilesystemError::NotFound(Box::new(e)));
                 } else {
-                    return Err(DirectoryError::Other(Box::new(e)));
+                    return Err(FilesystemError::Other(Box::new(e)));
                 }
             }
         };
@@ -244,7 +244,7 @@ impl Directory for TestRepoDirectory {
 }
 
 impl File for TestRepoFile {
-    async fn read_all(&mut self) -> Result<Vec<u8>, DirectoryError> {
+    async fn read_all(&mut self) -> Result<Vec<u8>, FilesystemError> {
         self.file.seek(io::SeekFrom::Start(0)).unwrap();
         let mut out = vec![];
         self.file.read_to_end(&mut out).unwrap();
@@ -255,7 +255,7 @@ impl File for TestRepoFile {
         &mut self,
         offset: Offset,
         dest: &mut [u8],
-    ) -> Result<usize, DirectoryError> {
+    ) -> Result<usize, FilesystemError> {
         let metadata = self.file.metadata().unwrap();
         let available_len = metadata.len() - offset.0;
         let read_len = min(usize::try_from(available_len).unwrap(), dest.len());

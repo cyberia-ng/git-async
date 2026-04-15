@@ -1,6 +1,6 @@
 use crate::{
-    directory::Directory,
     error::{Error, GResult, InternalObjectError, annotate_with_object_id},
+    file_system::Directory,
     object_store::{
         RawObject,
         lookup::{lookup, lookup_size_type},

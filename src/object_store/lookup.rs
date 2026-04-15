@@ -1,6 +1,6 @@
 use crate::{
-    directory::{DirEntry, Directory, Offset},
     error::{GResult, annotate_with_object_id},
+    file_system::{DirEntry, Directory, Offset},
     object::ObjectId,
     object_store::{
         ObjectSize, ObjectType, RawObject,
