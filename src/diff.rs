@@ -5,6 +5,7 @@ use crate::{
     file_system::Directory,
     object::{Object, ObjectId, Tree, TreeEntry, TreeEntryType},
 };
+use accessory::Accessors;
 use alloc::format;
 use alloc::vec::Vec;
 #[cfg(feature = "serde")]
@@ -37,7 +38,7 @@ fn join(path: Option<&Path>, component: &[u8]) -> Path {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum DiffEntry<Content> {
     LeftOnly {
@@ -58,6 +59,194 @@ pub enum DiffEntry<Content> {
     },
 }
 
+#[derive(Accessors)]
+pub struct Diff {
+    #[access(get(ty(&[DiffEntry<TextDiff<'static, 'static, [u8]>>])))]
+    entries: Vec<DiffEntry<TextDiff<'static, 'static, [u8]>>>,
+}
+
+#[derive(Accessors)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct TreeDiff<D> {
+    #[access(get(ty(&[DiffEntry<(ObjectId, ObjectId)>])))]
+    entries: Vec<DiffEntry<(ObjectId, ObjectId)>>,
+
+    #[cfg_attr(feature = "serde", serde(skip))]
+    repo: Option<Repo<D>>,
+}
+
+impl<D> TreeDiff<D> {
+    pub(crate) fn repo(&self) -> GResult<&Repo<D>> {
+        self.repo
+            .as_ref()
+            .ok_or_else(|| Error::NotAnnotatedWithRepo)
+    }
+}
+
+impl<D: Directory> TreeDiff<D> {
+    pub async fn new(left: &Tree<D>, right: &Tree<D>) -> GResult<Self> {
+        let repo = left.repo()?;
+        if left.id() == right.id() {
+            return Ok(Self {
+                entries: Vec::new(),
+                repo: Some(repo.clone()),
+            });
+        }
+        let mut out: Vec<DiffEntry<(ObjectId, ObjectId)>> = Vec::new();
+        #[allow(clippy::type_complexity)]
+        let mut stack: Vec<(Option<Path>, Option<Tree<D>>, Option<Tree<D>>)> = Vec::new();
+        stack.push((None, Some(left.clone()), Some(right.clone())));
+
+        while let Some((parent_path, left, right)) = stack.pop() {
+            // Loop invariants:
+            // - one of left or right is Some()
+            // - left and right have different IDs
+            debug_assert!(left.is_some() || right.is_some());
+            debug_assert!(left.as_ref().map(|t| t.id()) != right.as_ref().map(|t| t.id()));
+            let (left, right) = match (left, right) {
+                (Some(left), Some(right)) => (left, right),
+                (Some(left), None) => {
+                    for entry in left.entries() {
+                        let path = join(parent_path.as_ref(), entry.name());
+                        if entry.entry_type() == TreeEntryType::Tree {
+                            let tree = tree(repo, entry.id()).await?;
+                            stack.push((Some(path), None, Some(tree)));
+                        } else {
+                            out.push(DiffEntry::LeftOnly {
+                                path,
+                                entry_type: entry.entry_type(),
+                                content: (entry.id(), ObjectId::zero()),
+                            });
+                        }
+                    }
+                    continue;
+                }
+                (None, Some(right)) => {
+                    for entry in right.entries() {
+                        let path = join(parent_path.as_ref(), entry.name());
+                        if entry.entry_type() == TreeEntryType::Tree {
+                            let tree = tree(repo, entry.id()).await?;
+                            stack.push((Some(path), None, Some(tree)));
+                        } else {
+                            out.push(DiffEntry::RightOnly {
+                                path,
+                                entry_type: entry.entry_type(),
+                                content: (ObjectId::zero(), entry.id()),
+                            });
+                        }
+                    }
+                    continue;
+                }
+                (None, None) => unreachable!(),
+            };
+
+            let mut left_only: Vec<&TreeEntry<D>> = Vec::new();
+            let mut right_only: Vec<&TreeEntry<D>> = Vec::new();
+            let mut both: Vec<(&TreeEntry<D>, &TreeEntry<D>)> = Vec::new();
+            for left_entry in left.entries() {
+                let right_entry = right
+                    .entries()
+                    .iter()
+                    .find(|e| e.name() == left_entry.name());
+                match right_entry {
+                    Some(e) => both.push((left_entry, e)),
+                    None => left_only.push(left_entry),
+                }
+            }
+            for right_entry in right.entries() {
+                if both
+                    .iter()
+                    .find(|(_, e)| e.name() == right_entry.name())
+                    .is_none()
+                {
+                    right_only.push(right_entry);
+                }
+            }
+            for entry in left_only {
+                let path = join(parent_path.as_ref(), entry.name());
+                if entry.entry_type() == TreeEntryType::Tree {
+                    let left_tree = tree(repo, entry.id()).await?;
+                    stack.push((Some(path), Some(left_tree), None));
+                } else {
+                    out.push(DiffEntry::LeftOnly {
+                        path,
+                        entry_type: entry.entry_type(),
+                        content: (entry.id(), ObjectId::zero()),
+                    });
+                }
+            }
+            for entry in right_only {
+                let path = join(parent_path.as_ref(), entry.name());
+                if entry.entry_type() == TreeEntryType::Tree {
+                    let right_tree = tree(repo, entry.id()).await?;
+                    stack.push((Some(path), None, Some(right_tree)));
+                } else {
+                    out.push(DiffEntry::RightOnly {
+                        path,
+                        entry_type: entry.entry_type(),
+                        content: (ObjectId::zero(), entry.id()),
+                    });
+                }
+            }
+            for (left, right) in both {
+                if left.id() == right.id() {
+                    continue;
+                }
+                let name = left.name();
+                match (left.entry_type(), right.entry_type()) {
+                    (TreeEntryType::Tree, TreeEntryType::Tree) => {
+                        let left = tree(repo, left.id()).await?;
+                        let right = tree(repo, right.id()).await?;
+                        let path = join(parent_path.as_ref(), name);
+                        stack.push((Some(path), Some(left), Some(right)));
+                    }
+                    (TreeEntryType::Tree, _) => {
+                        let path = join(parent_path.as_ref(), name);
+                        out.push(DiffEntry::RightOnly {
+                            path: path.clone(),
+                            entry_type: right.entry_type(),
+                            content: (ObjectId::zero(), right.id()),
+                        });
+                        let left_tree = tree(repo, left.id()).await?;
+                        stack.push((Some(path), Some(left_tree), None));
+                    }
+                    (_, TreeEntryType::Tree) => {
+                        let path = join(parent_path.as_ref(), name);
+                        out.push(DiffEntry::LeftOnly {
+                            path: path.clone(),
+                            entry_type: left.entry_type(),
+                            content: (left.id(), ObjectId::zero()),
+                        });
+                        let right_tree = tree(repo, right.id()).await?;
+                        stack.push((Some(path), None, Some(right_tree)));
+                    }
+                    _ => {
+                        out.push(DiffEntry::Both {
+                            path: join(parent_path.as_ref(), name),
+                            left_type: left.entry_type(),
+                            right_type: right.entry_type(),
+                            content: (left.id(), right.id()),
+                        });
+                    }
+                }
+            }
+        }
+        Ok(Self {
+            entries: out,
+            repo: Some(repo.clone()),
+        })
+    }
+
+    pub async fn to_text_diff(&self, config: TextDiffConfig) -> GResult<Diff> {
+        let mut out: Vec<_> = Vec::with_capacity(self.entries.len());
+        for entry in &self.entries {
+            let entry = entry.resolve(self.repo()?, config.clone()).await?;
+            out.push(entry)
+        }
+        Ok(Diff { entries: out })
+    }
+}
+
 async fn tree<D: Directory>(repo: &Repo<D>, id: ObjectId) -> GResult<Tree<D>> {
     repo.lookup_object(id)
         .await?
@@ -66,216 +255,55 @@ async fn tree<D: Directory>(repo: &Repo<D>, id: ObjectId) -> GResult<Tree<D>> {
         .ok_or_else(|| Error::MalformedObject(id))
 }
 
-pub async fn diff_trees<D: Directory>(
-    left: &Tree<D>,
-    right: &Tree<D>,
-) -> GResult<Vec<DiffEntry<(ObjectId, ObjectId)>>> {
-    if left.id() == right.id() {
-        return Ok(Vec::new());
-    }
-    let repo = left.repo()?;
-    let mut out: Vec<DiffEntry<(ObjectId, ObjectId)>> = Vec::new();
-    #[allow(clippy::type_complexity)]
-    let mut stack: Vec<(Option<Path>, Option<Tree<D>>, Option<Tree<D>>)> = Vec::new();
-    stack.push((None, Some(left.clone()), Some(right.clone())));
-
-    while let Some((parent_path, left, right)) = stack.pop() {
-        // Loop invariants:
-        // - one of left or right is Some()
-        // - left and right have different IDs
-        debug_assert!(left.is_some() || right.is_some());
-        debug_assert!(left.as_ref().map(|t| t.id()) != right.as_ref().map(|t| t.id()));
-        let (left, right) = match (left, right) {
-            (Some(left), Some(right)) => (left, right),
-            (Some(left), None) => {
-                for entry in left.entries() {
-                    let path = join(parent_path.as_ref(), entry.name());
-                    if entry.entry_type() == TreeEntryType::Tree {
-                        let tree = tree(repo, entry.id()).await?;
-                        stack.push((Some(path), None, Some(tree)));
-                    } else {
-                        out.push(DiffEntry::LeftOnly {
-                            path,
-                            entry_type: entry.entry_type(),
-                            content: (entry.id(), ObjectId::zero()),
-                        });
-                    }
-                }
-                continue;
+impl DiffEntry<(ObjectId, ObjectId)> {
+    pub(crate) async fn resolve<D: Directory>(
+        &self,
+        repo: &Repo<D>,
+        config: TextDiffConfig,
+    ) -> GResult<DiffEntry<TextDiff<'static, 'static, [u8]>>> {
+        match self {
+            DiffEntry::LeftOnly {
+                path,
+                entry_type,
+                content: (id, _),
+            } => {
+                let body = read_leaf(repo, *entry_type, *id).await?;
+                Ok(DiffEntry::LeftOnly {
+                    path: path.clone(),
+                    entry_type: *entry_type,
+                    content: config.diff_lines(body, Vec::new()),
+                })
             }
-            (None, Some(right)) => {
-                for entry in right.entries() {
-                    let path = join(parent_path.as_ref(), entry.name());
-                    if entry.entry_type() == TreeEntryType::Tree {
-                        let tree = tree(repo, entry.id()).await?;
-                        stack.push((Some(path), None, Some(tree)));
-                    } else {
-                        out.push(DiffEntry::RightOnly {
-                            path,
-                            entry_type: entry.entry_type(),
-                            content: (ObjectId::zero(), entry.id()),
-                        });
-                    }
-                }
-                continue;
+            DiffEntry::RightOnly {
+                path,
+                entry_type,
+                content: (_, id),
+            } => {
+                let body = read_leaf(repo, *entry_type, *id).await?;
+                Ok(DiffEntry::RightOnly {
+                    path: path.clone(),
+                    entry_type: *entry_type,
+                    content: config.diff_lines(Vec::new(), body),
+                })
             }
-            (None, None) => unreachable!(),
-        };
-
-        let mut left_only: Vec<&TreeEntry<D>> = Vec::new();
-        let mut right_only: Vec<&TreeEntry<D>> = Vec::new();
-        let mut both: Vec<(&TreeEntry<D>, &TreeEntry<D>)> = Vec::new();
-        for left_entry in left.entries() {
-            let right_entry = right
-                .entries()
-                .iter()
-                .find(|e| e.name() == left_entry.name());
-            match right_entry {
-                Some(e) => both.push((left_entry, e)),
-                None => left_only.push(left_entry),
-            }
-        }
-        for right_entry in right.entries() {
-            if both
-                .iter()
-                .find(|(_, e)| e.name() == right_entry.name())
-                .is_none()
-            {
-                right_only.push(right_entry);
-            }
-        }
-        for entry in left_only {
-            let path = join(parent_path.as_ref(), entry.name());
-            if entry.entry_type() == TreeEntryType::Tree {
-                let left_tree = tree(repo, entry.id()).await?;
-                stack.push((Some(path), Some(left_tree), None));
-            } else {
-                out.push(DiffEntry::LeftOnly {
-                    path,
-                    entry_type: entry.entry_type(),
-                    content: (entry.id(), ObjectId::zero()),
-                });
-            }
-        }
-        for entry in right_only {
-            let path = join(parent_path.as_ref(), entry.name());
-            if entry.entry_type() == TreeEntryType::Tree {
-                let right_tree = tree(repo, entry.id()).await?;
-                stack.push((Some(path), None, Some(right_tree)));
-            } else {
-                out.push(DiffEntry::RightOnly {
-                    path,
-                    entry_type: entry.entry_type(),
-                    content: (ObjectId::zero(), entry.id()),
-                });
-            }
-        }
-        for (left, right) in both {
-            if left.id() == right.id() {
-                continue;
-            }
-            let name = left.name();
-            match (left.entry_type(), right.entry_type()) {
-                (TreeEntryType::Tree, TreeEntryType::Tree) => {
-                    let left = tree(repo, left.id()).await?;
-                    let right = tree(repo, right.id()).await?;
-                    let path = join(parent_path.as_ref(), name);
-                    stack.push((Some(path), Some(left), Some(right)));
-                }
-                (TreeEntryType::Tree, _) => {
-                    let path = join(parent_path.as_ref(), name);
-                    out.push(DiffEntry::RightOnly {
-                        path: path.clone(),
-                        entry_type: right.entry_type(),
-                        content: (ObjectId::zero(), right.id()),
-                    });
-                    let left_tree = tree(repo, left.id()).await?;
-                    stack.push((Some(path), Some(left_tree), None));
-                }
-                (_, TreeEntryType::Tree) => {
-                    let path = join(parent_path.as_ref(), name);
-                    out.push(DiffEntry::LeftOnly {
-                        path: path.clone(),
-                        entry_type: left.entry_type(),
-                        content: (left.id(), ObjectId::zero()),
-                    });
-                    let right_tree = tree(repo, right.id()).await?;
-                    stack.push((Some(path), None, Some(right_tree)));
-                }
-                _ => {
-                    out.push(DiffEntry::Both {
-                        path: join(parent_path.as_ref(), name),
-                        left_type: left.entry_type(),
-                        right_type: right.entry_type(),
-                        content: (left.id(), right.id()),
-                    });
-                }
+            DiffEntry::Both {
+                path,
+                left_type,
+                right_type,
+                content: (left_id, right_id),
+            } => {
+                let left_body = read_leaf(repo, *left_type, *left_id).await?;
+                let right_body = read_leaf(repo, *right_type, *right_id).await?;
+                let diff = config.diff_lines(left_body, right_body);
+                Ok(DiffEntry::Both {
+                    path: path.clone(),
+                    left_type: *left_type,
+                    right_type: *right_type,
+                    content: diff,
+                })
             }
         }
     }
-    Ok(out)
-}
-
-async fn resolve_entry<D: Directory>(
-    repo: &Repo<D>,
-    entry: &DiffEntry<(ObjectId, ObjectId)>,
-    config: TextDiffConfig,
-) -> GResult<DiffEntry<TextDiff<'static, 'static, [u8]>>> {
-    match entry {
-        DiffEntry::LeftOnly {
-            path,
-            entry_type,
-            content: (id, _),
-        } => {
-            let body = read_leaf(repo, *entry_type, *id).await?;
-            Ok(DiffEntry::LeftOnly {
-                path: path.clone(),
-                entry_type: *entry_type,
-                content: config.diff_lines(body, Vec::new()),
-            })
-        }
-        DiffEntry::RightOnly {
-            path,
-            entry_type,
-            content: (_, id),
-        } => {
-            let body = read_leaf(repo, *entry_type, *id).await?;
-            Ok(DiffEntry::RightOnly {
-                path: path.clone(),
-                entry_type: *entry_type,
-                content: config.diff_lines(Vec::new(), body),
-            })
-        }
-        DiffEntry::Both {
-            path,
-            left_type,
-            right_type,
-            content: (left_id, right_id),
-        } => {
-            let left_body = read_leaf(repo, *left_type, *left_id).await?;
-            let right_body = read_leaf(repo, *right_type, *right_id).await?;
-            let diff = config.diff_lines(left_body, right_body);
-            Ok(DiffEntry::Both {
-                path: path.clone(),
-                left_type: *left_type,
-                right_type: *right_type,
-                content: diff,
-            })
-        }
-    }
-}
-
-pub async fn to_text_diff<D: Directory>(
-    repo: &Repo<D>,
-    tree_diff: &[DiffEntry<(ObjectId, ObjectId)>],
-    config: TextDiffConfig,
-) -> GResult<Vec<DiffEntry<TextDiff<'static, 'static, [u8]>>>> {
-    let mut out: Vec<_> = Vec::with_capacity(tree_diff.len());
-    for entry in tree_diff {
-        let entry = resolve_entry(repo, entry, config.clone()).await?;
-        out.push(entry)
-    }
-    Ok(out)
 }
 
 async fn read_leaf<D: Directory>(
@@ -325,7 +353,12 @@ mod tests {
         let test_repo = make_basic_repo().unwrap();
         let repo = test_repo.repo();
         let tree = head_tree(&repo);
-        assert!(block_on(diff_trees(&tree, &tree)).unwrap().is_empty())
+        assert!(
+            block_on(TreeDiff::new(&tree, &tree))
+                .unwrap()
+                .entries()
+                .is_empty()
+        )
     }
 
     #[test]
@@ -347,9 +380,14 @@ mod tests {
             .commit("a commit", "a user", "an-email", "2000-01-01T00:00:00Z")
             .unwrap();
         let after = head_tree(&repo);
-        let the_diff = block_on(diff_trees(&before, &after)).unwrap();
+        let the_diff = block_on(TreeDiff::new(&before, &after))
+            .unwrap()
+            .entries()
+            .iter()
+            .map(Clone::clone)
+            .collect::<BTreeSet<_>>();
         assert_eq!(
-            the_diff.into_iter().collect::<BTreeSet<_>>(),
+            the_diff,
             vec![
                 DiffEntry::Both {
                     path: Path(b"a".to_vec()),
@@ -372,9 +410,14 @@ mod tests {
             .into_iter()
             .collect()
         );
-        let the_diff = block_on(diff_trees(&after, &before)).unwrap();
+        let the_diff = block_on(TreeDiff::new(&after, &before))
+            .unwrap()
+            .entries()
+            .iter()
+            .map(Clone::clone)
+            .collect::<BTreeSet<_>>();
         assert_eq!(
-            the_diff.into_iter().collect::<BTreeSet<_>>(),
+            the_diff,
             vec![
                 DiffEntry::Both {
                     path: Path(b"a".to_vec()),
@@ -417,9 +460,14 @@ mod tests {
             .commit("a commit", "a user", "an-email", "2000-01-01T00:00:00Z")
             .unwrap();
         let after = head_tree(&repo);
-        let the_diff = block_on(diff_trees(&before, &after)).unwrap();
+        let the_diff = block_on(TreeDiff::new(&before, &after))
+            .unwrap()
+            .entries()
+            .iter()
+            .map(Clone::clone)
+            .collect::<BTreeSet<_>>();
         assert_eq!(
-            the_diff.into_iter().collect::<BTreeSet<_>>(),
+            the_diff,
             vec![DiffEntry::Both {
                 path: Path(b"dir/a".to_vec()),
                 left_type: TreeEntryType::File,
@@ -432,9 +480,14 @@ mod tests {
             .into_iter()
             .collect()
         );
-        let the_diff = block_on(diff_trees(&after, &before)).unwrap();
+        let the_diff = block_on(TreeDiff::new(&after, &before))
+            .unwrap()
+            .entries()
+            .iter()
+            .map(Clone::clone)
+            .collect::<BTreeSet<_>>();
         assert_eq!(
-            the_diff.into_iter().collect::<BTreeSet<_>>(),
+            the_diff,
             vec![DiffEntry::Both {
                 path: Path(b"dir/a".to_vec()),
                 left_type: TreeEntryType::File,
@@ -469,9 +522,14 @@ mod tests {
             .commit("a commit", "a user", "an-email", "2000-01-01T00:00:00Z")
             .unwrap();
         let after = head_tree(&repo);
-        let the_diff = block_on(diff_trees(&before, &after)).unwrap();
+        let the_diff = block_on(TreeDiff::new(&before, &after))
+            .unwrap()
+            .entries()
+            .iter()
+            .map(Clone::clone)
+            .collect::<BTreeSet<_>>();
         assert_eq!(
-            the_diff.into_iter().collect::<BTreeSet<_>>(),
+            the_diff,
             vec![
                 DiffEntry::RightOnly {
                     path: Path(b"a/b".to_vec()),
@@ -501,9 +559,14 @@ mod tests {
             .into_iter()
             .collect()
         );
-        let the_diff = block_on(diff_trees(&after, &before)).unwrap();
+        let the_diff = block_on(TreeDiff::new(&after, &before))
+            .unwrap()
+            .entries()
+            .iter()
+            .map(Clone::clone)
+            .collect::<BTreeSet<_>>();
         assert_eq!(
-            the_diff.into_iter().collect::<BTreeSet<_>>(),
+            the_diff,
             vec![
                 DiffEntry::LeftOnly {
                     path: Path(b"a/b".to_vec()),
