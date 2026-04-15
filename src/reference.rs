@@ -63,7 +63,7 @@ impl RefName {
 #[derive(Clone, Accessors)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "serde", serde(bound = ""))]
-pub struct Ref<'r, D> {
+pub struct Ref<D> {
     #[access(get)]
     name: RefName,
 
@@ -71,7 +71,7 @@ pub struct Ref<'r, D> {
     ref_type: RefType,
 
     #[cfg_attr(feature = "serde", serde(skip))]
-    repo: Option<&'r Repo<D>>,
+    repo: Option<Repo<D>>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -82,8 +82,8 @@ pub enum RefType {
     Symbolic(RefName),
 }
 
-impl<'r, D: Directory> Ref<'r, D> {
-    pub(crate) async fn lookup(repo: &'r Repo<D>, name: &RefName) -> GResult<Ref<'r, D>> {
+impl<D: Directory> Ref<D> {
+    pub(crate) async fn lookup(repo: &Repo<D>, name: &RefName) -> GResult<Ref<D>> {
         let ref_type = {
             if let Some(reference) = lookup_loose_ref(repo, name).await? {
                 reference
@@ -103,12 +103,12 @@ impl<'r, D: Directory> Ref<'r, D> {
         Ok(Self {
             name: name.clone(),
             ref_type,
-            repo: Some(repo),
+            repo: Some(repo.clone()),
         })
     }
 
-    fn repo(&self) -> GResult<&'r Repo<D>> {
-        match self.repo {
+    fn repo(&self) -> GResult<&Repo<D>> {
+        match &self.repo {
             Some(r) => Ok(r),
             None => Err(Error::NotAnnotatedWithRepo),
         }
@@ -125,13 +125,13 @@ impl<'r, D: Directory> Ref<'r, D> {
         }
     }
 
-    pub async fn peel_to_commit(&self) -> GResult<Option<Commit<'r, D>>> {
+    pub async fn peel_to_commit(&self) -> GResult<Option<Commit<D>>> {
         let oid = self.resolve_object_id().await?;
         let object = self.repo()?.lookup_object(oid).await?;
         object.peel_to_commit().await
     }
 
-    pub async fn peel_to_tree(&self) -> GResult<Option<Tree<'r, D>>> {
+    pub async fn peel_to_tree(&self) -> GResult<Option<Tree<D>>> {
         let oid = self.resolve_object_id().await?;
         let object = self.repo()?.lookup_object(oid).await?;
         object.peel_to_tree().await

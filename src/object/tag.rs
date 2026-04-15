@@ -24,7 +24,7 @@ pub enum TagType {
 #[derive(Clone, Accessors)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "serde", serde(bound = ""))]
-pub struct Tag<'r, D> {
+pub struct Tag<D> {
     #[access(get(cp))]
     id: ObjectId,
 
@@ -57,28 +57,28 @@ pub struct Tag<'r, D> {
     additional_headers: Vec<ObjectHeader>,
 
     #[cfg_attr(feature = "serde", serde(skip))]
-    repo: Option<&'r Repo<D>>,
+    repo: Option<Repo<D>>,
 }
 
-impl<D> PartialEq for Tag<'_, D> {
+impl<D> PartialEq for Tag<D> {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id
     }
 }
-impl<D> Eq for Tag<'_, D> {}
-impl<D> PartialOrd for Tag<'_, D> {
+impl<D> Eq for Tag<D> {}
+impl<D> PartialOrd for Tag<D> {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         self.id.partial_cmp(&other.id)
     }
 }
-impl<D> Ord for Tag<'_, D> {
+impl<D> Ord for Tag<D> {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         self.id.cmp(&other.id)
     }
 }
 
-impl<'r, D> Tag<'r, D> {
-    pub fn detach(self) -> Tag<'static, ()> {
+impl<D> Tag<D> {
+    pub fn detach(self) -> Tag<()> {
         Tag {
             id: self.id,
             target: self.target,
@@ -93,9 +93,18 @@ impl<'r, D> Tag<'r, D> {
         }
     }
 
+    pub(crate) fn repo(&self) -> GResult<&Repo<D>> {
+        match &self.repo {
+            Some(r) => Ok(r),
+            None => Err(Error::NotAnnotatedWithRepo),
+        }
+    }
+}
+
+impl<D: Clone> Tag<D> {
     pub(crate) fn parser<'a>(
         id: ObjectId,
-        repo: &'r Repo<D>,
+        repo: &Repo<D>,
     ) -> impl Fn(&'a [u8]) -> ParseResult<&'a [u8], Self> {
         move |input: &[u8]| {
             let (message, raw_headers) = parse_object_headers.parse(input)?;
@@ -134,7 +143,7 @@ impl<'r, D> Tag<'r, D> {
                     }
                 }
             }
-            let f = move || -> Option<Tag<'r, D>> {
+            let f = move || -> Option<Tag<D>> {
                 Some(Tag {
                     id,
                     target: object?,
@@ -145,7 +154,7 @@ impl<'r, D> Tag<'r, D> {
                     tag_date,
                     message: message.to_vec(),
                     additional_headers,
-                    repo: Some(repo),
+                    repo: Some(repo.clone()),
                 })
             };
             match f() {
@@ -154,17 +163,10 @@ impl<'r, D> Tag<'r, D> {
             }
         }
     }
-
-    pub(crate) fn repo(&self) -> GResult<&'r Repo<D>> {
-        match self.repo {
-            Some(r) => Ok(r),
-            None => Err(Error::NotAnnotatedWithRepo),
-        }
-    }
 }
 
-impl<'r, D: Directory> Tag<'r, D> {
-    pub async fn lookup_target(&self) -> GResult<Object<'r, D>> {
+impl<D: Directory> Tag<D> {
+    pub async fn lookup_target(&self) -> GResult<Object<D>> {
         self.repo()?.lookup_object(self.target).await
     }
 }

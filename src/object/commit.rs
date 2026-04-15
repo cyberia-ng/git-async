@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Accessors)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "serde", serde(bound = ""))]
-pub struct Commit<'r, D> {
+pub struct Commit<D> {
     #[access(get(cp))]
     id: ObjectId,
 
@@ -56,28 +56,28 @@ pub struct Commit<'r, D> {
     additional_headers: Vec<ObjectHeader>,
 
     #[cfg_attr(feature = "serde", serde(skip))]
-    repo: Option<&'r Repo<D>>,
+    repo: Option<Repo<D>>,
 }
 
-impl<D> PartialEq for Commit<'_, D> {
+impl<D> PartialEq for Commit<D> {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id
     }
 }
-impl<D> Eq for Commit<'_, D> {}
-impl<D> PartialOrd for Commit<'_, D> {
+impl<D> Eq for Commit<D> {}
+impl<D> PartialOrd for Commit<D> {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         self.id.partial_cmp(&other.id)
     }
 }
-impl<D> Ord for Commit<'_, D> {
+impl<D> Ord for Commit<D> {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         self.id.cmp(&other.id)
     }
 }
 
-impl<'r, D> Commit<'r, D> {
-    pub fn detach(self) -> Commit<'static, ()> {
+impl<D> Commit<D> {
+    pub fn detach(self) -> Commit<()> {
         Commit {
             id: self.id,
             tree: self.tree,
@@ -94,9 +94,18 @@ impl<'r, D> Commit<'r, D> {
         }
     }
 
+    pub(crate) fn repo(&self) -> GResult<&Repo<D>> {
+        match &self.repo {
+            Some(r) => Ok(r),
+            None => Err(Error::NotAnnotatedWithRepo),
+        }
+    }
+}
+
+impl<D: Clone> Commit<D> {
     pub(crate) fn parser<'a>(
         id: ObjectId,
-        repo: &'r Repo<D>,
+        repo: &Repo<D>,
     ) -> impl Fn(&'a [u8]) -> ParseResult<&'a [u8], Self> {
         move |input: &[u8]| {
             let (message, raw_headers) = parse_object_headers.parse(input)?;
@@ -138,7 +147,7 @@ impl<'r, D> Commit<'r, D> {
                     }
                 }
             }
-            let f = move || -> Option<Commit<'r, D>> {
+            let f = move || -> Option<Commit<D>> {
                 Some(Commit {
                     id,
                     author_name: author_name?,
@@ -151,7 +160,7 @@ impl<'r, D> Commit<'r, D> {
                     parents,
                     message: message.to_vec(),
                     additional_headers,
-                    repo: Some(repo),
+                    repo: Some(repo.clone()),
                 })
             };
             match f() {
@@ -160,21 +169,14 @@ impl<'r, D> Commit<'r, D> {
             }
         }
     }
-
-    pub(crate) fn repo(&self) -> GResult<&'r Repo<D>> {
-        match self.repo {
-            Some(r) => Ok(r),
-            None => Err(Error::NotAnnotatedWithRepo),
-        }
-    }
 }
 
-impl<'r, D: Directory> Commit<'r, D> {
-    pub async fn lookup_tree(&self) -> GResult<Tree<'r, D>> {
+impl<D: Directory> Commit<D> {
+    pub async fn lookup_tree(&self) -> GResult<Tree<D>> {
         Ok(self.repo()?.lookup_object(self.tree).await?.tree()?)
     }
 
-    pub async fn lookup_parents(&self) -> GResult<Vec<Commit<'r, D>>> {
+    pub async fn lookup_parents(&self) -> GResult<Vec<Commit<D>>> {
         let repo = self.repo()?;
         let mut out = Vec::with_capacity(self.parents.len());
         for parent in &self.parents {

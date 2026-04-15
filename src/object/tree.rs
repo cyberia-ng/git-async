@@ -32,7 +32,7 @@ pub enum TreeEntryType {
 #[derive(Debug, Clone, Accessors)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "serde", serde(bound = ""))]
-pub struct TreeEntry<'r, D> {
+pub struct TreeEntry<D> {
     #[access(get(ty(&[u8])))]
     #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
     name: Vec<u8>,
@@ -44,22 +44,24 @@ pub struct TreeEntry<'r, D> {
     id: ObjectId,
 
     #[cfg_attr(feature = "serde", serde(skip))]
-    repo: Option<&'r Repo<D>>,
+    repo: Option<Repo<D>>,
 }
 
-impl<D> PartialEq for TreeEntry<'_, D> {
+impl<D> PartialEq for TreeEntry<D> {
     fn eq(&self, other: &Self) -> bool {
         self.name == other.name && self.entry_type == other.entry_type && self.id == other.id
     }
 }
-impl<D> Eq for TreeEntry<'_, D> {}
+impl<D> Eq for TreeEntry<D> {}
 
-impl<'r, D> TreeEntry<'r, D> {
-    pub(crate) fn repo(&self) -> GResult<&'r Repo<D>> {
-        self.repo.ok_or_else(|| Error::NotAnnotatedWithRepo)
+impl<D> TreeEntry<D> {
+    pub(crate) fn repo(&self) -> GResult<&Repo<D>> {
+        self.repo
+            .as_ref()
+            .ok_or_else(|| Error::NotAnnotatedWithRepo)
     }
 
-    pub fn detach(self) -> TreeEntry<'static, ()> {
+    pub fn detach(self) -> TreeEntry<()> {
         TreeEntry {
             name: self.name,
             entry_type: self.entry_type,
@@ -69,8 +71,8 @@ impl<'r, D> TreeEntry<'r, D> {
     }
 }
 
-impl<'r, D: Directory> TreeEntry<'r, D> {
-    pub async fn lookup(&self) -> GResult<Option<Object<'r, D>>> {
+impl<D: Directory> TreeEntry<D> {
+    pub async fn lookup(&self) -> GResult<Option<Object<D>>> {
         if self.entry_type == TreeEntryType::Commit {
             Ok(None)
         } else {
@@ -82,37 +84,37 @@ impl<'r, D: Directory> TreeEntry<'r, D> {
 #[derive(Clone, Accessors)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "serde", serde(bound = ""))]
-pub struct Tree<'r, D> {
+pub struct Tree<D> {
     #[access(get(cp))]
     id: ObjectId,
 
-    #[access(get(ty(&[TreeEntry<'r, D>])))]
-    entries: Vec<TreeEntry<'r, D>>,
+    #[access(get(ty(&[TreeEntry<D>])))]
+    entries: Vec<TreeEntry<D>>,
 
     #[allow(dead_code)] // TODO Will be useful for diffing
     #[cfg_attr(feature = "serde", serde(skip))]
-    repo: Option<&'r Repo<D>>,
+    repo: Option<Repo<D>>,
 }
 
-impl<D> PartialEq for Tree<'_, D> {
+impl<D> PartialEq for Tree<D> {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id
     }
 }
-impl<D> Eq for Tree<'_, D> {}
-impl<D> PartialOrd for Tree<'_, D> {
+impl<D> Eq for Tree<D> {}
+impl<D> PartialOrd for Tree<D> {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         self.id.partial_cmp(&other.id)
     }
 }
-impl<D> Ord for Tree<'_, D> {
+impl<D> Ord for Tree<D> {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         self.id.cmp(&other.id)
     }
 }
 
-impl<'r, D> TreeEntry<'r, D> {
-    fn parser<'a>(repo: &'r Repo<D>) -> impl Fn(&'a [u8]) -> ParseResult<&'a [u8], Self> {
+impl<D: Clone> TreeEntry<D> {
+    fn parser<'a>(repo: &Repo<D>) -> impl Fn(&'a [u8]) -> ParseResult<&'a [u8], Self> {
         move |input: &'a [u8]| {
             let entry_type_parser = alt((
                 tag("40000").map(|_| TreeEntryType::Tree),
@@ -133,15 +135,15 @@ impl<'r, D> TreeEntry<'r, D> {
                     entry_type,
                     name: name.to_vec(),
                     id,
-                    repo: Some(repo),
+                    repo: Some(repo.clone()),
                 },
             ))
         }
     }
 }
 
-impl<'r, D> Tree<'r, D> {
-    pub fn detach(self) -> Tree<'static, ()> {
+impl<D> Tree<D> {
+    pub fn detach(self) -> Tree<()> {
         Tree {
             id: self.id,
             entries: self.entries.into_iter().map(TreeEntry::detach).collect(),
@@ -149,26 +151,28 @@ impl<'r, D> Tree<'r, D> {
         }
     }
 
+    #[allow(dead_code)] // TODO Will be useful for diffing
+    pub(crate) fn repo(&self) -> GResult<&Repo<D>> {
+        match &self.repo {
+            Some(r) => Ok(r),
+            None => Err(Error::NotAnnotatedWithRepo),
+        }
+    }
+}
+
+impl<D: Clone> Tree<D> {
     pub(crate) fn parser<'a>(
         id: ObjectId,
-        repo: &'r Repo<D>,
+        repo: &Repo<D>,
     ) -> impl Fn(&'a [u8]) -> ParseResult<&'a [u8], Self> {
         move |input: &'a [u8]| {
             many(0.., TreeEntry::parser(repo))
                 .map(|entries| Tree {
                     id,
                     entries,
-                    repo: Some(repo),
+                    repo: Some(repo.clone()),
                 })
                 .parse(input)
-        }
-    }
-
-    #[allow(dead_code)] // TODO Will be useful for diffing
-    pub(crate) fn repo(&self) -> GResult<&'r Repo<D>> {
-        match self.repo {
-            Some(r) => Ok(r),
-            None => Err(Error::NotAnnotatedWithRepo),
         }
     }
 }

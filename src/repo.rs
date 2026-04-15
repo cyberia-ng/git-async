@@ -11,7 +11,7 @@ use alloc::vec::Vec;
 /// A handle to a Git repository
 ///
 /// It is generic over the implementation of filesystem operations.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Repo<D> {
     pub(crate) git_dir: D,
 }
@@ -53,18 +53,18 @@ impl<D: Directory> Repo<D> {
     }
 
     /// Get the repository's HEAD ref.
-    pub async fn head(&self) -> GResult<Ref<'_, D>> {
+    pub async fn head(&self) -> GResult<Ref<D>> {
         Ref::lookup(self, &RefName::Head).await
     }
 
     /// Take a ref name and look up its content.
-    pub async fn lookup_ref(&self, name: &RefName) -> GResult<Ref<'_, D>> {
+    pub async fn lookup_ref(&self, name: &RefName) -> GResult<Ref<D>> {
         Ref::lookup(self, name).await
     }
 
     /// Look up a particular object in the repository, reading the entire object
     /// into memory.
-    pub async fn lookup_object(&self, id: ObjectId) -> GResult<Object<'_, D>> {
+    pub async fn lookup_object(&self, id: ObjectId) -> GResult<Object<D>> {
         Object::lookup(self, id).await
     }
 

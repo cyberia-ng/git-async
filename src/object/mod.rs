@@ -80,14 +80,14 @@ impl ObjectId {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "serde", serde(tag = "type"))]
 #[cfg_attr(feature = "serde", serde(bound = ""))]
-pub enum Object<'r, D> {
-    Commit(Commit<'r, D>),
-    Tree(Tree<'r, D>),
-    Tag(Tag<'r, D>),
+pub enum Object<D> {
+    Commit(Commit<D>),
+    Tree(Tree<D>),
+    Tag(Tag<D>),
     Blob(Blob),
 }
 
-impl<'r, D> Object<'r, D> {
+impl<D> Object<D> {
     pub fn id(&self) -> ObjectId {
         use Object::*;
         match self {
@@ -98,7 +98,7 @@ impl<'r, D> Object<'r, D> {
         }
     }
 
-    pub fn detach(self) -> Object<'static, ()> {
+    pub fn detach(self) -> Object<()> {
         use Object::*;
         match self {
             Commit(commit) => Commit(commit.detach()),
@@ -118,7 +118,7 @@ impl<'r, D> Object<'r, D> {
         }
     }
 
-    pub fn commit(self) -> Result<Commit<'r, D>, UnexpectedObjectType> {
+    pub fn commit(self) -> Result<Commit<D>, UnexpectedObjectType> {
         use Object::*;
         match self {
             Commit(c) => Ok(c),
@@ -130,7 +130,7 @@ impl<'r, D> Object<'r, D> {
         }
     }
 
-    pub fn tag(self) -> Result<Tag<'r, D>, UnexpectedObjectType> {
+    pub fn tag(self) -> Result<Tag<D>, UnexpectedObjectType> {
         use Object::*;
         match self {
             Tag(t) => Ok(t),
@@ -142,7 +142,7 @@ impl<'r, D> Object<'r, D> {
         }
     }
 
-    pub fn tree(self) -> Result<Tree<'r, D>, UnexpectedObjectType> {
+    pub fn tree(self) -> Result<Tree<D>, UnexpectedObjectType> {
         use Object::*;
         match self {
             Tree(t) => Ok(t),
@@ -167,8 +167,8 @@ impl<'r, D> Object<'r, D> {
     }
 }
 
-impl<'r, D: Directory> Object<'r, D> {
-    pub async fn peel_to_commit(&self) -> GResult<Option<Commit<'r, D>>> {
+impl<D: Directory> Object<D> {
+    pub async fn peel_to_commit(&self) -> GResult<Option<Commit<D>>> {
         use Object::*;
         let mut obj = self.clone();
         loop {
@@ -183,7 +183,7 @@ impl<'r, D: Directory> Object<'r, D> {
         }
     }
 
-    pub async fn peel_to_tree(&self) -> GResult<Option<Tree<'r, D>>> {
+    pub async fn peel_to_tree(&self) -> GResult<Option<Tree<D>>> {
         use Object::*;
         let mut obj = self.clone();
         loop {
@@ -202,7 +202,7 @@ impl<'r, D: Directory> Object<'r, D> {
         }
     }
 
-    pub(crate) async fn lookup(repo: &'r Repo<D>, id: ObjectId) -> GResult<Self> {
+    pub(crate) async fn lookup(repo: &Repo<D>, id: ObjectId) -> GResult<Self> {
         let RawObject {
             object_type,
             body,
@@ -222,7 +222,7 @@ impl<'r, D: Directory> Object<'r, D> {
     }
 
     pub(crate) async fn lookup_size_type(
-        repo: &'r Repo<D>,
+        repo: &Repo<D>,
         id: ObjectId,
     ) -> GResult<(ObjectSize, ObjectType)> {
         lookup_size_type(repo, id)
@@ -233,7 +233,7 @@ impl<'r, D: Directory> Object<'r, D> {
     pub(crate) fn parser<'a>(
         id: ObjectId,
         object_type: ObjectType,
-        repo: &'r Repo<D>,
+        repo: &Repo<D>,
     ) -> impl Fn(&'a [u8]) -> ParseResult<&'a [u8], Self> {
         move |body: &[u8]| {
             let (_, object) = match object_type {
