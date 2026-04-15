@@ -59,6 +59,43 @@ pub enum DiffEntry<Content> {
     },
 }
 
+impl<Content> DiffEntry<Content> {
+    pub fn map_content<T>(&self, fun: impl Fn(&Content) -> T) -> DiffEntry<T> {
+        use DiffEntry::*;
+        match self {
+            LeftOnly {
+                path,
+                entry_type,
+                content,
+            } => DiffEntry::LeftOnly {
+                path: path.clone(),
+                entry_type: *entry_type,
+                content: fun(content),
+            },
+            Both {
+                path,
+                left_type,
+                right_type,
+                content,
+            } => DiffEntry::Both {
+                path: path.clone(),
+                left_type: *left_type,
+                right_type: *right_type,
+                content: fun(content),
+            },
+            RightOnly {
+                path,
+                entry_type,
+                content,
+            } => DiffEntry::RightOnly {
+                path: path.clone(),
+                entry_type: *entry_type,
+                content: fun(content),
+            },
+        }
+    }
+}
+
 #[derive(Accessors)]
 pub struct Diff {
     #[access(get(ty(&[DiffEntry<TextDiff<'static, 'static, [u8]>>])))]
