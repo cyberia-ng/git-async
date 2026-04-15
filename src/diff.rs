@@ -1,4 +1,6 @@
 #![allow(missing_docs)]
+use core::convert::Infallible;
+
 use crate::{
     Repo,
     error::{Error, GResult},
@@ -40,6 +42,7 @@ fn join(path: Option<&Path>, component: &[u8]) -> Path {
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", serde(tag = "type"))]
 pub enum DiffEntry<Content> {
     LeftOnly {
         path: Path,
@@ -61,8 +64,16 @@ pub enum DiffEntry<Content> {
 
 impl<Content> DiffEntry<Content> {
     pub fn map_content<T>(&self, fun: impl Fn(&Content) -> T) -> DiffEntry<T> {
+        self.map_content_res(|c| Ok::<T, Infallible>(fun(c)))
+            .unwrap()
+    }
+
+    pub fn map_content_res<T, E>(
+        &self,
+        fun: impl Fn(&Content) -> Result<T, E>,
+    ) -> Result<DiffEntry<T>, E> {
         use DiffEntry::*;
-        match self {
+        Ok(match self {
             LeftOnly {
                 path,
                 entry_type,
@@ -70,7 +81,7 @@ impl<Content> DiffEntry<Content> {
             } => DiffEntry::LeftOnly {
                 path: path.clone(),
                 entry_type: *entry_type,
-                content: fun(content),
+                content: fun(content)?,
             },
             Both {
                 path,
@@ -81,7 +92,7 @@ impl<Content> DiffEntry<Content> {
                 path: path.clone(),
                 left_type: *left_type,
                 right_type: *right_type,
-                content: fun(content),
+                content: fun(content)?,
             },
             RightOnly {
                 path,
@@ -90,9 +101,9 @@ impl<Content> DiffEntry<Content> {
             } => DiffEntry::RightOnly {
                 path: path.clone(),
                 entry_type: *entry_type,
-                content: fun(content),
+                content: fun(content)?,
             },
-        }
+        })
     }
 }
 
