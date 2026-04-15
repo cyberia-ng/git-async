@@ -1,4 +1,3 @@
-#![allow(missing_docs)]
 use core::convert::Infallible;
 
 use crate::{
