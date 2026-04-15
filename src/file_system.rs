@@ -1,25 +1,66 @@
+//! Traits and error types for interacting with files and directories
+//!
+//! The purpose of this module is to specify what consumers of this library must
+//! implement in order for the filesystem calls in rgit to work. Consumers must
+//! implement the [`Directory`] and [`File`] traits, which are then used internally
+//! to navigate a git directory.
+//!
+//! The simplest way of implementing these would be to use
+//! [`std::fs`], but this nullifies the async
+//! capabilities of this crate. If you are using Tokio for example, you should
+//! use primitives from [`tokio::fs`](https://docs.rs/tokio/latest/tokio/fs/).
+//! If you are using `rgit` in a browser, you may want to use the [web
+//! filesystem
+//! API](https://developer.mozilla.org/en-US/docs/Web/API/File_System_API).
+
 use alloc::{boxed::Box, vec::Vec};
 use core::{any::Any, future::Future};
 
+/// Represents a directory entry
+///
+/// Names are represented as [`Vec<u8>`] to work on platforms with non-Unicode
+/// filename encodings.
+///
+/// Note that the names in this struct are **names** only, not full paths.
 pub enum DirEntry {
+    #[allow(missing_docs)]
     File(Vec<u8>),
+    #[allow(missing_docs)]
     Directory(Vec<u8>),
 }
 
+/// An error encountered when doing file or directory operations.
+///
+/// Rather than make everything generic over the type of errors, we use
+/// [`Box<dyn Any>`] to hold platform-native errors.
 #[derive(Debug)]
 pub enum FilesystemError {
+    /// The requested file was not found
     NotFound(Box<dyn Any>),
+    /// Any other kind of error
     Other(Box<dyn Any>),
 }
 
+/// A trait for directories and their operations
+///
+/// A simple implementation might just use a [`std::path::PathBuf`]. On
+/// platforms which implement directory handles, this should encapsulate the
+/// handle.
 pub trait Directory: Sized + Clone {
+    /// The type of files which can be opened using [`Directory::open_file`]
     type File: File;
 
+    /// Open a subdirectory of this directory
     fn open_subdir(&self, name: &[u8]) -> impl Future<Output = Result<Self, FilesystemError>>;
+
+    /// List the entries in this directory
     fn list_dir(&self) -> impl Future<Output = Result<Vec<DirEntry>, FilesystemError>>;
+
+    /// Open a file (for reading)
     fn open_file(&self, name: &[u8]) -> impl Future<Output = Result<Self::File, FilesystemError>>;
 }
 
+/// An offset within a file; a newtype wrapper around a [`u64`]
 #[derive(Debug, Clone, Copy)]
 pub struct Offset(pub u64);
 
@@ -39,9 +80,22 @@ impl core::ops::Sub<u64> for Offset {
     }
 }
 
+/// A trait for reading files
+///
+/// A simple (non-async) implementation would hold a [`std::fs::File`] handle.
 pub trait File: Sized {
+    /// Read everything in the file
+    ///
+    /// This should be idempotent with any other reads. If the platform requires
+    /// it, implementors should seek to the start of the file before reading.
     fn read_all(&mut self) -> impl Future<Output = Result<Vec<u8>, FilesystemError>>;
 
+    /// Read a segment of the file into the destination buffer. If less data is
+    /// available than the size of the buffer, then only the first `n` bytes of
+    /// the buffer are modified. Therefore implementors should take care not to
+    /// error on EOF conditions.
+    ///
+    /// Successful reads return the number of bytes read.
     fn read_segment(
         &mut self,
         offset: Offset,
