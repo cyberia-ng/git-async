@@ -23,7 +23,4 @@ pub mod traits;
 pub use repo::Repo;
 
 #[cfg(test)]
-mod test {
-    pub(crate) mod helpers;
-    pub(crate) mod repo;
-}
+mod test;

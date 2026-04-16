@@ -186,7 +186,7 @@ async fn open_dir_path<F: File, D: Directory<F>>(
 
 #[cfg(test)]
 mod tests {
-    use crate::test::repo::{TestDirectory, TestRepoDirectory};
+    use crate::test::{directory::TestRepoDirectory, repo::TestDirectory};
 
     use super::*;
     use futures::executor::block_on;

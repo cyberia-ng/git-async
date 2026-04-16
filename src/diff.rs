@@ -376,7 +376,7 @@ mod tests {
         reference::RefName,
         test::{
             helpers::{make_basic_repo, make_file},
-            repo::TestGenerics,
+            impls::TestGenerics,
         },
     };
     use futures::executor::block_on;
