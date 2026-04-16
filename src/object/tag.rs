@@ -3,7 +3,7 @@ use crate::{
     object::{Object, ObjectHeader, ObjectId, parse_author_committer_tagger, parse_object_headers},
     parsing::{ParseError, ParseResult},
     repo::Repo,
-    traits::{AllGenerics, Never},
+    traits::{AllGenerics, Detached},
 };
 use accessory::Accessors;
 use alloc::vec::Vec;
@@ -94,7 +94,7 @@ impl<G: AllGenerics> Clone for Tag<G> {
 }
 
 impl<G: AllGenerics> Tag<G> {
-    pub fn detach(self) -> Tag<Never> {
+    pub fn detach(self) -> Tag<Detached> {
         Tag {
             id: self.id,
             target: self.target,
@@ -192,8 +192,8 @@ mod tests {
 
     const ZERO_OID: ObjectId = ObjectId::new([0; 20]);
 
-    fn dummy_repo() -> Repo<Never> {
-        Repo::new(Never::new())
+    fn dummy_repo() -> Repo<Detached> {
+        Repo::new(Detached::new())
     }
 
     #[test]

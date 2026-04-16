@@ -6,7 +6,7 @@ use crate::{
     },
     parsing::ParseResult,
     repo::Repo,
-    traits::{AllGenerics, Never},
+    traits::{AllGenerics, Detached},
 };
 use accessory::Accessors;
 use alloc::{format, vec::Vec};
@@ -80,7 +80,6 @@ impl ObjectId {
     }
 }
 
-// #[derive(PartialEq, Eq, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "serde", serde(tag = "type"))]
 #[cfg_attr(feature = "serde", serde(bound = ""))]
@@ -113,7 +112,7 @@ impl<G: AllGenerics> Object<G> {
         }
     }
 
-    pub fn detach(self) -> Object<Never> {
+    pub fn detach(self) -> Object<Detached> {
         use Object::*;
         match self {
             Commit(commit) => Commit(commit.detach()),

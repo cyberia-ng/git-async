@@ -12,20 +12,20 @@ pub trait AllGenerics: 'static {
 }
 
 #[derive(Debug)]
-pub struct Never<T = ()>(PhantomData<T>);
-impl<T> Never<T> {
+pub struct Detached<T = ()>(PhantomData<T>);
+impl<T> Detached<T> {
     pub(crate) fn new() -> Self {
         Self(PhantomData)
     }
 }
-impl<T> Clone for Never<T> {
+impl<T> Clone for Detached<T> {
     fn clone(&self) -> Self {
         Self::new()
     }
 }
 
-impl AllGenerics for Never {
-    type File = Never;
-    type Directory = Never;
-    type SharedCell<T: 'static> = Never<T>;
+impl AllGenerics for Detached {
+    type File = Detached;
+    type Directory = Detached;
+    type SharedCell<T: 'static> = Detached<T>;
 }

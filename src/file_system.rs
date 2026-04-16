@@ -16,7 +16,7 @@
 use alloc::{boxed::Box, vec::Vec};
 use core::{any::Any, future::Future};
 
-use crate::traits::Never;
+use crate::traits::Detached;
 
 /// Represents a directory entry
 ///
@@ -59,7 +59,7 @@ pub trait Directory<File>: Sized + Clone {
     fn open_file(&self, name: &[u8]) -> impl Future<Output = Result<File, FilesystemError>>;
 }
 
-impl Directory<Never> for Never {
+impl Directory<Detached> for Detached {
     async fn open_subdir(&self, _name: &[u8]) -> Result<Self, FilesystemError> {
         unreachable!()
     }
@@ -68,7 +68,7 @@ impl Directory<Never> for Never {
         unreachable!()
     }
 
-    async fn open_file(&self, _name: &[u8]) -> Result<Never, FilesystemError> {
+    async fn open_file(&self, _name: &[u8]) -> Result<Detached, FilesystemError> {
         unreachable!()
     }
 }
@@ -116,7 +116,7 @@ pub trait File: Sized {
     ) -> impl Future<Output = Result<usize, FilesystemError>>;
 }
 
-impl File for Never {
+impl File for Detached {
     async fn read_all(&mut self) -> Result<Vec<u8>, FilesystemError> {
         unreachable!()
     }

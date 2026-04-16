@@ -48,14 +48,14 @@ mod tests {
     use crate::{
         Repo,
         object::{Object, ObjectType},
-        traits::Never,
+        traits::Detached,
     };
     use nom::Parser;
 
     const ZERO_OID: ObjectId = ObjectId::new([0; 20]);
 
-    fn dummy_repo() -> Repo<Never> {
-        Repo::new(Never::new())
+    fn dummy_repo() -> Repo<Detached> {
+        Repo::new(Detached::new())
     }
 
     #[test]

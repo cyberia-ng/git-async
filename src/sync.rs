@@ -1,4 +1,4 @@
-use crate::traits::Never;
+use crate::traits::Detached;
 use alloc::rc::Rc;
 use core::{
     cell::RefCell,
@@ -55,9 +55,9 @@ impl<T: 'static> SharedCell<T> for SingleThreadedRcCell<T> {
     }
 }
 
-impl<T: 'static> SharedCell<T> for Never<T> {
-    type Guard<'a> = Never<T>;
-    type MutGuard<'a> = Never<T>;
+impl<T: 'static> SharedCell<T> for Detached<T> {
+    type Guard<'a> = Detached<T>;
+    type MutGuard<'a> = Detached<T>;
 
     fn new(_value: T) -> Self {
         Self::new()
@@ -71,7 +71,7 @@ impl<T: 'static> SharedCell<T> for Never<T> {
     }
 }
 
-impl<T> Deref for Never<T> {
+impl<T> Deref for Detached<T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -79,7 +79,7 @@ impl<T> Deref for Never<T> {
     }
 }
 
-impl<T> DerefMut for Never<T> {
+impl<T> DerefMut for Detached<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         unreachable!()
     }
