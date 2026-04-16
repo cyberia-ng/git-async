@@ -3,6 +3,7 @@ use crate::{
     file_system::{File, Offset},
     object::ObjectId,
 };
+use alloc::vec;
 use core::cmp::Ordering;
 
 pub(crate) struct IndexFanout {
@@ -66,15 +67,25 @@ async fn find_object_idx<F: File>(
         + 4 // version
         + 256 * 4, // fanout
     );
-    let mut buf = [0u8; 20];
+    let table_size: usize = 20 * usize::try_from(fanout_entry - prev_fanout_entry).unwrap();
+    let mut id_table = vec![0u8; table_size];
+    let bytes_read = idx_file
+        .read_segment(
+            ids_offset + u64::from(prev_fanout_entry * 20),
+            &mut id_table,
+        )
+        .await?;
+    if bytes_read < table_size {
+        return Err(Error::CorruptIndexFile);
+    }
     let mut lower_idx = prev_fanout_entry; // inclusive
     let mut upper_idx = fanout_entry; // exclusive
     let mut obj_idx: Option<u32> = None;
     while obj_idx.is_none() && lower_idx < upper_idx {
         let mid_idx: u32 = u32::midpoint(lower_idx, upper_idx);
-        let mid_offset: Offset = ids_offset + u64::from(mid_idx) * 20;
-        idx_file.read_segment(mid_offset, &mut buf).await?;
-        match buf.cmp(id.id()) {
+        let mid_position: usize = usize::try_from(mid_idx - prev_fanout_entry).unwrap() * 20;
+        let candidate_id = &id_table[mid_position..(mid_position + 20)];
+        match candidate_id.cmp(id.id()) {
             Ordering::Equal => {
                 obj_idx = Some(mid_idx);
             }
