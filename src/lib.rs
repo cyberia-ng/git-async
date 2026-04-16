@@ -18,6 +18,7 @@ pub mod reference;
 mod repo;
 #[cfg(feature = "serde")]
 mod serde;
+pub mod sync;
 pub mod traits;
 
 pub use repo::Repo;

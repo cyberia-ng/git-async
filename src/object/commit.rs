@@ -3,7 +3,7 @@ use crate::{
     object::{ObjectHeader, ObjectId, Tree, parse_author_committer_tagger, parse_object_headers},
     parsing::{ParseError, ParseResult},
     repo::Repo,
-    traits::{AllGenerics, Noop},
+    traits::{AllGenerics, Never},
 };
 use accessory::Accessors;
 use alloc::vec::Vec;
@@ -96,7 +96,7 @@ impl<G: AllGenerics> Clone for Commit<G> {
 }
 
 impl<G: AllGenerics> Commit<G> {
-    pub fn detach(self) -> Commit<Noop> {
+    pub fn detach(self) -> Commit<Never> {
         Commit {
             id: self.id,
             tree: self.tree,
@@ -210,8 +210,8 @@ mod tests {
 
     const ZERO_OID: ObjectId = ObjectId::new([0; 20]);
 
-    fn dummy_repo() -> Repo<Noop> {
-        Repo { git_dir: Noop(()) }
+    fn dummy_repo() -> Repo<Never> {
+        Repo::new(Never::new())
     }
 
     #[test]

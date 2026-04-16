@@ -48,14 +48,14 @@ mod tests {
     use crate::{
         Repo,
         object::{Object, ObjectType},
-        traits::Noop,
+        traits::Never,
     };
     use nom::Parser;
 
     const ZERO_OID: ObjectId = ObjectId::new([0; 20]);
 
-    fn dummy_repo() -> Repo<Noop> {
-        Repo { git_dir: Noop(()) }
+    fn dummy_repo() -> Repo<Never> {
+        Repo::new(Never::new())
     }
 
     #[test]

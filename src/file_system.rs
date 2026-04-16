@@ -16,7 +16,7 @@
 use alloc::{boxed::Box, vec::Vec};
 use core::{any::Any, future::Future};
 
-use crate::traits::Noop;
+use crate::traits::Never;
 
 /// Represents a directory entry
 ///
@@ -59,7 +59,7 @@ pub trait Directory<File>: Sized + Clone {
     fn open_file(&self, name: &[u8]) -> impl Future<Output = Result<File, FilesystemError>>;
 }
 
-impl Directory<Noop> for Noop {
+impl Directory<Never> for Never {
     async fn open_subdir(&self, _name: &[u8]) -> Result<Self, FilesystemError> {
         unreachable!()
     }
@@ -68,7 +68,7 @@ impl Directory<Noop> for Noop {
         unreachable!()
     }
 
-    async fn open_file(&self, _name: &[u8]) -> Result<Noop, FilesystemError> {
+    async fn open_file(&self, _name: &[u8]) -> Result<Never, FilesystemError> {
         unreachable!()
     }
 }
@@ -116,7 +116,7 @@ pub trait File: Sized {
     ) -> impl Future<Output = Result<usize, FilesystemError>>;
 }
 
-impl File for Noop {
+impl File for Never {
     async fn read_all(&mut self) -> Result<Vec<u8>, FilesystemError> {
         unreachable!()
     }

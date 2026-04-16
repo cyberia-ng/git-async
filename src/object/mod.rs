@@ -6,7 +6,7 @@ use crate::{
     },
     parsing::ParseResult,
     repo::Repo,
-    traits::{AllGenerics, Noop},
+    traits::{AllGenerics, Never},
 };
 use accessory::Accessors;
 use alloc::{format, vec::Vec};
@@ -113,7 +113,7 @@ impl<G: AllGenerics> Object<G> {
         }
     }
 
-    pub fn detach(self) -> Object<Noop> {
+    pub fn detach(self) -> Object<Never> {
         use Object::*;
         match self {
             Commit(commit) => Commit(commit.detach()),

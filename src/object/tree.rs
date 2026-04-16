@@ -3,7 +3,7 @@ use crate::{
     object::{Object, ObjectId},
     parsing::ParseResult,
     repo::Repo,
-    traits::{AllGenerics, Noop},
+    traits::{AllGenerics, Never},
 };
 use accessory::Accessors;
 use alloc::vec::Vec;
@@ -81,7 +81,7 @@ impl<G: AllGenerics> TreeEntry<G> {
             .ok_or_else(|| Error::NotAnnotatedWithRepo)
     }
 
-    pub fn detach(self) -> TreeEntry<Noop> {
+    pub fn detach(self) -> TreeEntry<Never> {
         TreeEntry {
             name: self.name,
             entry_type: self.entry_type,
@@ -167,7 +167,7 @@ impl<G: AllGenerics> Clone for Tree<G> {
 }
 
 impl<G: AllGenerics> Tree<G> {
-    pub fn detach(self) -> Tree<Noop> {
+    pub fn detach(self) -> Tree<Never> {
         Tree {
             id: self.id,
             entries: self.entries.into_iter().map(TreeEntry::detach).collect(),
@@ -206,8 +206,8 @@ mod tests {
 
     const ZERO_OID: ObjectId = ObjectId::new([0; 20]);
 
-    fn dummy_repo() -> Repo<Noop> {
-        Repo { git_dir: Noop(()) }
+    fn dummy_repo() -> Repo<Never> {
+        Repo::new(Never::new())
     }
 
     #[test]

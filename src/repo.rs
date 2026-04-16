@@ -4,6 +4,7 @@ use crate::{
     object::{Object, ObjectId},
     object_store::{ObjectSize, ObjectType},
     reference::{Ref, RefName, read_packed_refs},
+    sync::SharedCell,
     traits::AllGenerics,
 };
 use alloc::collections::BTreeSet;
@@ -15,12 +16,14 @@ use alloc::vec::Vec;
 #[derive(Debug)]
 pub struct Repo<G: AllGenerics> {
     pub(crate) git_dir: G::Directory,
+    pub(crate) shared_data: G::SharedCell<()>,
 }
 
 impl<G: AllGenerics> Clone for Repo<G> {
     fn clone(&self) -> Self {
         Self {
             git_dir: self.git_dir.clone(),
+            shared_data: self.shared_data.clone(),
         }
     }
 }
@@ -28,7 +31,10 @@ impl<G: AllGenerics> Clone for Repo<G> {
 impl<G: AllGenerics> Repo<G> {
     /// Open the repository located at `git_dir`.
     pub fn new(git_dir: G::Directory) -> Self {
-        Repo { git_dir }
+        Repo {
+            git_dir,
+            shared_data: G::SharedCell::new(()),
+        }
     }
 
     /// Collect all the refs tracked by the repository. Includes HEAD, branches,
@@ -141,7 +147,10 @@ mod tests {
     #[test]
     fn repo_is_send() {
         fn _foo<T: Send>(_val: T) {}
-        fn _bar<G: AllGenerics<Directory: Send>>(repo: Repo<G>) {
+        fn _bar<G>(repo: Repo<G>)
+        where
+            G: AllGenerics<Directory: Send, SharedCell<()>: Send>,
+        {
             _foo(repo);
         }
     }
@@ -149,7 +158,7 @@ mod tests {
     #[test]
     fn repo_is_sync() {
         fn _foo<T: Sync>(_val: T) {}
-        fn _bar<G: AllGenerics<Directory: Sync>>(repo: Repo<G>) {
+        fn _bar<G: AllGenerics<Directory: Sync, SharedCell<()>: Sync>>(repo: Repo<G>) {
             _foo(repo);
         }
     }
