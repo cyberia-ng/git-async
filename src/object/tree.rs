@@ -150,7 +150,6 @@ impl<D> Tree<D> {
         }
     }
 
-    #[allow(dead_code)] // TODO Will be useful for diffing
     pub(crate) fn repo(&self) -> GResult<&Repo<D>> {
         match &self.repo {
             Some(r) => Ok(r),
