@@ -1,5 +1,5 @@
 use crate::{
-    error::{Error, IResult, InternalObjectError},
+    error::{Error, GResult, IResult, InternalObjectError},
     file_system::{File, Offset},
     object::ObjectId,
     object_store::{
@@ -20,6 +20,8 @@ use miniz_oxide::inflate::{
     },
 };
 
+const BODY_READ_CHUNK_SIZE: usize = 4096;
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 struct PackNegativeOffset(pub u64);
 
@@ -34,6 +36,7 @@ enum PackObjectType {
 pub(crate) struct PackObject {
     pub body_offset: Offset,
     pub size: ObjectSize,
+    pub body_initial: Vec<u8>,
 }
 
 // Git uses three slightly different algorithms for encoding variable-width
@@ -133,58 +136,64 @@ fn read_delta_expected_size(buf: &[u8]) -> (usize, ObjectSize) {
     (bytes_read, size)
 }
 
+pub(crate) async fn validate_packfile_version<F: File>(pack_file: &mut F) -> GResult<()> {
+    let mut buf = [0u8; 8];
+    pack_file.read_segment(Offset(0), &mut buf).await?;
+    if buf != [b'P', b'A', b'C', b'K', 0, 0, 0, 2] {
+        return Err(Error::UnsupportedPackVersion);
+    }
+    Ok(())
+}
+
 async fn read_pack_object_header<F: File>(
     pack_file: &mut F,
     offset: Offset,
 ) -> IResult<(PackObjectType, PackObject)> {
-    let mut buf = [0u8; 4];
-    pack_file.read_segment(Offset(0), &mut buf).await?;
-    if buf != *b"PACK" {
-        return Err(Error::UnsupportedPackVersion.into());
-    }
-    pack_file.read_segment(Offset(4), &mut buf).await?;
-    if buf != [0, 0, 0, 2] {
-        return Err(Error::UnsupportedPackVersion.into());
-    }
-
     // buf size must be enough to encode a u64::MAX in one of git's variable
     // size encodings - i.e. at least 10 bytes
-    let mut buf = [0u8; 32];
+    let mut buf = vec![
+        0u8;
+        10 // u64::MAX in header encoding
+        + 20 // Ref delta object ID, or u64::MAX in offset delta
+        + BODY_READ_CHUNK_SIZE
+    ];
     let mut pos: usize = 0;
-    pack_file
+    let eof_pos = pack_file
         .read_segment(offset + u64::try_from(pos).unwrap(), &mut buf)
         .await?;
     let (bytes_read, mut object_type, obj_size) = read_obj_type_size(&buf)?;
     pos += bytes_read;
+    if pos >= eof_pos {
+        return Err(Error::CorruptPackFile.into());
+    }
 
     match object_type {
         PackObjectType::Base(..) => {}
         PackObjectType::OffsetDelta {
             ref mut base_offset_neg,
         } => {
-            pack_file
-                .read_segment(offset + u64::try_from(pos).unwrap(), &mut buf)
-                .await?;
-            let (bytes_read, offset) = read_delta_offset(&buf);
+            let (bytes_read, offset) = read_delta_offset(&buf[pos..]);
             *base_offset_neg = offset;
             pos += bytes_read;
         }
         PackObjectType::RefDelta { ref mut base_id } => {
-            let bytes_read = pack_file
-                .read_segment(offset + pos as u64, &mut base_id.id)
-                .await?;
-            if bytes_read != base_id.id.len() {
-                return Err(InternalObjectError::MalformedPackObject);
+            if eof_pos - pos < 20 {
+                return Err(Error::CorruptPackFile.into());
             }
-            pos += bytes_read;
+            base_id.id.copy_from_slice(&buf[pos..(pos + 20)]);
+            pos += 20;
         }
     }
+
+    let mut body_initial = Vec::with_capacity(BODY_READ_CHUNK_SIZE);
+    body_initial.extend_from_slice(&buf[pos..(pos + BODY_READ_CHUNK_SIZE)]);
 
     Ok((
         object_type,
         PackObject {
             body_offset: Offset(offset.0 + (pos as u64)),
             size: obj_size,
+            body_initial,
         },
     ))
 }
@@ -196,17 +205,11 @@ async fn read_pack_object_body<F: File>(
     let object_size =
         usize::try_from(object.size.0).map_err(|_| InternalObjectError::ObjectTooLarge)?;
     let mut pos = 0;
-    let mut compressed_body_buf = vec![0u8; 4096];
+    let mut compressed_body_buf = object.body_initial.clone();
     let mut body = vec![0u8; object_size];
     let mut state = Box::<DecompressorOxide>::default();
     let mut out_idx: usize = 0;
     loop {
-        pack_file
-            .read_segment(
-                object.body_offset + u64::try_from(pos).unwrap(),
-                &mut compressed_body_buf,
-            )
-            .await?;
         let (status, input_read, output_written) = decompress(
             &mut state,
             &compressed_body_buf,
@@ -230,6 +233,12 @@ async fn read_pack_object_body<F: File>(
                 .into());
             }
         }
+        pack_file
+            .read_segment(
+                object.body_offset + u64::try_from(pos).unwrap(),
+                &mut compressed_body_buf,
+            )
+            .await?;
     }
     Ok(body)
 }
@@ -250,7 +259,7 @@ pub(crate) async fn form_deltified_chain<F: File>(
             }
             PackObjectType::RefDelta { base_id } => {
                 let base_offset = find_object_in_pack_index(
-                    &indexed_pack.fanout,
+                    indexed_pack.fanout,
                     &mut indexed_pack.index,
                     *base_id,
                 )

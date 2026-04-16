@@ -24,6 +24,7 @@ pub enum Error {
     UnsupportedIndexVersion,
     CorruptIndexFile,
     UnsupportedPackVersion,
+    CorruptPackFile,
     MalformedPackedRefs,
     MalformedRef(RefName),
     RefNotFound(RefName),

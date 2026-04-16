@@ -2,7 +2,7 @@ use crate::{
     Repo,
     error::GResult,
     file_system::{DirEntry, Directory},
-    object_store::{index::IndexFanout, lookup::Pack},
+    object_store::{index::IndexFanout, lookup::Pack, pack::validate_packfile_version},
     repo::RepoCache,
     sync::SharedCell,
     traits::AllGenerics,
@@ -36,6 +36,8 @@ impl<G: AllGenerics> PackFileCache<G> {
         for pack_id in pack_ids {
             let mut file = pack_dir.open_file(&pack_id.index_filename).await?;
             let fanout = IndexFanout::load(&mut file).await?;
+            let mut pack_file = pack_dir.open_file(&pack_id.pack_filename).await?;
+            validate_packfile_version(&mut pack_file).await?;
             fanouts.push((pack_id, fanout));
         }
         Ok(Self { pack_dir, fanouts })
