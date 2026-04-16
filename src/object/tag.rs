@@ -1,9 +1,9 @@
 use crate::{
     error::{Error, GResult},
-    file_system::Directory,
     object::{Object, ObjectHeader, ObjectId, parse_author_committer_tagger, parse_object_headers},
     parsing::{ParseError, ParseResult},
     repo::Repo,
+    traits::{AllGenerics, Noop},
 };
 use accessory::Accessors;
 use alloc::vec::Vec;
@@ -21,10 +21,10 @@ pub enum TagType {
     Tag,
 }
 
-#[derive(Clone, Accessors)]
+#[derive(Accessors)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "serde", serde(bound = ""))]
-pub struct Tag<D> {
+pub struct Tag<G: AllGenerics> {
     #[access(get(cp))]
     id: ObjectId,
 
@@ -57,28 +57,44 @@ pub struct Tag<D> {
     additional_headers: Vec<ObjectHeader>,
 
     #[cfg_attr(feature = "serde", serde(skip))]
-    repo: Option<Repo<D>>,
+    repo: Option<Repo<G>>,
 }
 
-impl<D> PartialEq for Tag<D> {
+impl<G: AllGenerics> PartialEq for Tag<G> {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id
     }
 }
-impl<D> Eq for Tag<D> {}
-impl<D> PartialOrd for Tag<D> {
+impl<G: AllGenerics> Eq for Tag<G> {}
+impl<G: AllGenerics> PartialOrd for Tag<G> {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         self.id.partial_cmp(&other.id)
     }
 }
-impl<D> Ord for Tag<D> {
+impl<G: AllGenerics> Ord for Tag<G> {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         self.id.cmp(&other.id)
     }
 }
+impl<G: AllGenerics> Clone for Tag<G> {
+    fn clone(&self) -> Self {
+        Self {
+            id: self.id,
+            target: self.target,
+            tag_type: self.tag_type,
+            name: self.name.clone(),
+            tagger_name: self.tagger_name.clone(),
+            tagger_email: self.tagger_email.clone(),
+            tag_date: self.tag_date,
+            message: self.message.clone(),
+            additional_headers: self.additional_headers.clone(),
+            repo: self.repo.clone(),
+        }
+    }
+}
 
-impl<D> Tag<D> {
-    pub fn detach(self) -> Tag<()> {
+impl<G: AllGenerics> Tag<G> {
+    pub fn detach(self) -> Tag<Noop> {
         Tag {
             id: self.id,
             target: self.target,
@@ -93,7 +109,11 @@ impl<D> Tag<D> {
         }
     }
 
-    pub(crate) fn repo(&self) -> GResult<&Repo<D>> {
+    pub async fn lookup_target(&self) -> GResult<Object<G>> {
+        self.repo()?.lookup_object(self.target).await
+    }
+
+    pub(crate) fn repo(&self) -> GResult<&Repo<G>> {
         match &self.repo {
             Some(r) => Ok(r),
             None => Err(Error::NotAnnotatedWithRepo),
@@ -101,10 +121,10 @@ impl<D> Tag<D> {
     }
 }
 
-impl<D: Clone> Tag<D> {
+impl<G: AllGenerics> Tag<G> {
     pub(crate) fn parser<'a>(
         id: ObjectId,
-        repo: &Repo<D>,
+        repo: &Repo<G>,
     ) -> impl Fn(&'a [u8]) -> ParseResult<&'a [u8], Self> {
         move |input: &[u8]| {
             let (message, raw_headers) = parse_object_headers.parse(input)?;
@@ -143,7 +163,7 @@ impl<D: Clone> Tag<D> {
                     }
                 }
             }
-            let f = move || -> Option<Tag<D>> {
+            let f = move || -> Option<Tag<G>> {
                 Some(Tag {
                     id,
                     target: object?,
@@ -165,22 +185,15 @@ impl<D: Clone> Tag<D> {
     }
 }
 
-impl<D: Directory> Tag<D> {
-    pub async fn lookup_target(&self) -> GResult<Object<D>> {
-        self.repo()?.lookup_object(self.target).await
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test::repo::{TestRepo, TestRepoDirectory};
     use hex_literal::hex;
 
     const ZERO_OID: ObjectId = ObjectId::new([0; 20]);
 
-    fn dummy_repo() -> Repo<TestRepoDirectory> {
-        TestRepo::new().unwrap().repo()
+    fn dummy_repo() -> Repo<Noop> {
+        Repo { git_dir: Noop(()) }
     }
 
     #[test]

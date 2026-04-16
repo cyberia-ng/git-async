@@ -3,8 +3,8 @@ use core::convert::Infallible;
 use crate::{
     Repo,
     error::{Error, GResult},
-    file_system::Directory,
     object::{Object, ObjectId, Tree, TreeEntry, TreeEntryType},
+    traits::AllGenerics,
 };
 use accessory::Accessors;
 use alloc::format;
@@ -114,24 +114,23 @@ pub struct Diff {
 
 #[derive(Accessors)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct TreeDiff<D> {
+#[cfg_attr(feature = "serde", serde(bound = ""))]
+pub struct TreeDiff<G: AllGenerics> {
     #[access(get(ty(&[DiffEntry<(ObjectId, ObjectId)>])))]
     entries: Vec<DiffEntry<(ObjectId, ObjectId)>>,
 
     #[cfg_attr(feature = "serde", serde(skip))]
-    repo: Option<Repo<D>>,
+    repo: Option<Repo<G>>,
 }
 
-impl<D> TreeDiff<D> {
-    pub(crate) fn repo(&self) -> GResult<&Repo<D>> {
+impl<G: AllGenerics> TreeDiff<G> {
+    pub(crate) fn repo(&self) -> GResult<&Repo<G>> {
         self.repo
             .as_ref()
             .ok_or_else(|| Error::NotAnnotatedWithRepo)
     }
-}
 
-impl<D: Directory> TreeDiff<D> {
-    pub async fn new(left: &Tree<D>, right: &Tree<D>) -> GResult<Self> {
+    pub async fn new(left: &Tree<G>, right: &Tree<G>) -> GResult<Self> {
         let repo = left.repo()?;
         if left.id() == right.id() {
             return Ok(Self {
@@ -141,7 +140,7 @@ impl<D: Directory> TreeDiff<D> {
         }
         let mut out: Vec<DiffEntry<(ObjectId, ObjectId)>> = Vec::new();
         #[allow(clippy::type_complexity)]
-        let mut stack: Vec<(Option<Path>, Option<Tree<D>>, Option<Tree<D>>)> = Vec::new();
+        let mut stack: Vec<(Option<Path>, Option<Tree<G>>, Option<Tree<G>>)> = Vec::new();
         stack.push((None, Some(left.clone()), Some(right.clone())));
 
         while let Some((parent_path, left, right)) = stack.pop() {
@@ -187,9 +186,9 @@ impl<D: Directory> TreeDiff<D> {
                 (None, None) => unreachable!(),
             };
 
-            let mut left_only: Vec<&TreeEntry<D>> = Vec::new();
-            let mut right_only: Vec<&TreeEntry<D>> = Vec::new();
-            let mut both: Vec<(&TreeEntry<D>, &TreeEntry<D>)> = Vec::new();
+            let mut left_only: Vec<&TreeEntry<G>> = Vec::new();
+            let mut right_only: Vec<&TreeEntry<G>> = Vec::new();
+            let mut both: Vec<(&TreeEntry<G>, &TreeEntry<G>)> = Vec::new();
             for left_entry in left.entries() {
                 let right_entry = right
                     .entries()
@@ -294,7 +293,7 @@ impl<D: Directory> TreeDiff<D> {
     }
 }
 
-async fn tree<D: Directory>(repo: &Repo<D>, id: ObjectId) -> GResult<Tree<D>> {
+async fn tree<G: AllGenerics>(repo: &Repo<G>, id: ObjectId) -> GResult<Tree<G>> {
     repo.lookup_object(id)
         .await?
         .peel_to_tree()
@@ -303,9 +302,9 @@ async fn tree<D: Directory>(repo: &Repo<D>, id: ObjectId) -> GResult<Tree<D>> {
 }
 
 impl DiffEntry<(ObjectId, ObjectId)> {
-    pub(crate) async fn resolve<D: Directory>(
+    pub(crate) async fn resolve<G: AllGenerics>(
         &self,
-        repo: &Repo<D>,
+        repo: &Repo<G>,
         config: TextDiffConfig,
     ) -> GResult<DiffEntry<TextDiff<'static, 'static, [u8]>>> {
         match self {
@@ -353,8 +352,8 @@ impl DiffEntry<(ObjectId, ObjectId)> {
     }
 }
 
-async fn read_leaf<D: Directory>(
-    repo: &Repo<D>,
+async fn read_leaf<G: AllGenerics>(
+    repo: &Repo<G>,
     entry_type: TreeEntryType,
     id: ObjectId,
 ) -> GResult<Vec<u8>> {
@@ -377,7 +376,7 @@ mod tests {
         reference::RefName,
         test::{
             helpers::{make_basic_repo, make_file},
-            repo::TestRepoDirectory,
+            repo::TestGenerics,
         },
     };
     use futures::executor::block_on;
@@ -390,7 +389,7 @@ mod tests {
 
     use super::*;
 
-    fn head_tree(repo: &Repo<TestRepoDirectory>) -> Tree<TestRepoDirectory> {
+    fn head_tree(repo: &Repo<TestGenerics>) -> Tree<TestGenerics> {
         let head = block_on(repo.lookup_ref(&RefName::Head)).unwrap();
         block_on(head.peel_to_tree()).unwrap().unwrap()
     }

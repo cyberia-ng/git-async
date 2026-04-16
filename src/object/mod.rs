@@ -1,12 +1,12 @@
 use crate::{
     error::{Error, GResult, InternalObjectError, UnexpectedObjectType, annotate_with_object_id},
-    file_system::Directory,
     object_store::{
         RawObject,
         lookup::{lookup, lookup_size_type},
     },
     parsing::ParseResult,
     repo::Repo,
+    traits::{AllGenerics, Noop},
 };
 use accessory::Accessors;
 use alloc::{format, vec::Vec};
@@ -80,18 +80,29 @@ impl ObjectId {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+// #[derive(PartialEq, Eq, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "serde", serde(tag = "type"))]
 #[cfg_attr(feature = "serde", serde(bound = ""))]
-pub enum Object<D> {
-    Commit(Commit<D>),
-    Tree(Tree<D>),
-    Tag(Tag<D>),
+pub enum Object<G: AllGenerics> {
+    Commit(Commit<G>),
+    Tree(Tree<G>),
+    Tag(Tag<G>),
     Blob(Blob),
 }
 
-impl<D> Object<D> {
+impl<G: AllGenerics> Clone for Object<G> {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Commit(c) => Self::Commit(c.clone()),
+            Self::Tree(t) => Self::Tree(t.clone()),
+            Self::Tag(t) => Self::Tag(t.clone()),
+            Self::Blob(b) => Self::Blob(b.clone()),
+        }
+    }
+}
+
+impl<G: AllGenerics> Object<G> {
     pub fn id(&self) -> ObjectId {
         use Object::*;
         match self {
@@ -102,7 +113,7 @@ impl<D> Object<D> {
         }
     }
 
-    pub fn detach(self) -> Object<()> {
+    pub fn detach(self) -> Object<Noop> {
         use Object::*;
         match self {
             Commit(commit) => Commit(commit.detach()),
@@ -122,7 +133,7 @@ impl<D> Object<D> {
         }
     }
 
-    pub fn commit(self) -> Result<Commit<D>, UnexpectedObjectType> {
+    pub fn commit(self) -> Result<Commit<G>, UnexpectedObjectType> {
         use Object::*;
         match self {
             Commit(c) => Ok(c),
@@ -134,7 +145,7 @@ impl<D> Object<D> {
         }
     }
 
-    pub fn tag(self) -> Result<Tag<D>, UnexpectedObjectType> {
+    pub fn tag(self) -> Result<Tag<G>, UnexpectedObjectType> {
         use Object::*;
         match self {
             Tag(t) => Ok(t),
@@ -146,7 +157,7 @@ impl<D> Object<D> {
         }
     }
 
-    pub fn tree(self) -> Result<Tree<D>, UnexpectedObjectType> {
+    pub fn tree(self) -> Result<Tree<G>, UnexpectedObjectType> {
         use Object::*;
         match self {
             Tree(t) => Ok(t),
@@ -169,12 +180,10 @@ impl<D> Object<D> {
             }),
         }
     }
-}
 
-impl<D: Directory> Object<D> {
-    pub async fn peel_to_commit(&self) -> GResult<Option<Commit<D>>> {
+    pub async fn peel_to_commit(&self) -> GResult<Option<Commit<G>>> {
         use Object::*;
-        let mut obj = self.clone();
+        let mut obj: Object<G> = self.clone();
         loop {
             match obj {
                 Commit(c) => return Ok(Some(c)),
@@ -187,9 +196,9 @@ impl<D: Directory> Object<D> {
         }
     }
 
-    pub async fn peel_to_tree(&self) -> GResult<Option<Tree<D>>> {
+    pub async fn peel_to_tree(&self) -> GResult<Option<Tree<G>>> {
         use Object::*;
-        let mut obj = self.clone();
+        let mut obj: Object<G> = self.clone();
         loop {
             match obj {
                 Tree(t) => return Ok(Some(t)),
@@ -206,7 +215,7 @@ impl<D: Directory> Object<D> {
         }
     }
 
-    pub(crate) async fn lookup(repo: &Repo<D>, id: ObjectId) -> GResult<Self> {
+    pub(crate) async fn lookup(repo: &Repo<G>, id: ObjectId) -> GResult<Self> {
         let RawObject {
             object_type,
             body,
@@ -226,7 +235,7 @@ impl<D: Directory> Object<D> {
     }
 
     pub(crate) async fn lookup_size_type(
-        repo: &Repo<D>,
+        repo: &Repo<G>,
         id: ObjectId,
     ) -> GResult<(ObjectSize, ObjectType)> {
         lookup_size_type(repo, id)
@@ -237,7 +246,7 @@ impl<D: Directory> Object<D> {
     pub(crate) fn parser<'a>(
         id: ObjectId,
         object_type: ObjectType,
-        repo: &Repo<D>,
+        repo: &Repo<G>,
     ) -> impl Fn(&'a [u8]) -> ParseResult<&'a [u8], Self> {
         move |body: &[u8]| {
             let (_, object) = match object_type {

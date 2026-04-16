@@ -16,6 +16,8 @@
 use alloc::{boxed::Box, vec::Vec};
 use core::{any::Any, future::Future};
 
+use crate::traits::Noop;
+
 /// Represents a directory entry
 ///
 /// Names are represented as [`Vec<u8>`] to work on platforms with non-Unicode
@@ -46,9 +48,9 @@ pub enum FilesystemError {
 /// A simple implementation might just use a [`std::path::PathBuf`]. On
 /// platforms which implement directory handles, this should encapsulate the
 /// handle.
-pub trait Directory: Sized + Clone {
+pub trait Directory<File>: Sized + Clone {
     /// The type of files which can be opened using [`Directory::open_file`]
-    type File: File;
+    // type File: File;
 
     /// Open a subdirectory of this directory
     fn open_subdir(&self, name: &[u8]) -> impl Future<Output = Result<Self, FilesystemError>>;
@@ -57,7 +59,21 @@ pub trait Directory: Sized + Clone {
     fn list_dir(&self) -> impl Future<Output = Result<Vec<DirEntry>, FilesystemError>>;
 
     /// Open a file (for reading)
-    fn open_file(&self, name: &[u8]) -> impl Future<Output = Result<Self::File, FilesystemError>>;
+    fn open_file(&self, name: &[u8]) -> impl Future<Output = Result<File, FilesystemError>>;
+}
+
+impl Directory<Noop> for Noop {
+    async fn open_subdir(&self, _name: &[u8]) -> Result<Self, FilesystemError> {
+        unreachable!()
+    }
+
+    async fn list_dir(&self) -> Result<Vec<DirEntry>, FilesystemError> {
+        unreachable!()
+    }
+
+    async fn open_file(&self, _name: &[u8]) -> Result<Noop, FilesystemError> {
+        unreachable!()
+    }
 }
 
 /// An offset within a file; a newtype wrapper around a [`u64`]
@@ -103,6 +119,20 @@ pub trait File: Sized {
     ) -> impl Future<Output = Result<usize, FilesystemError>>;
 }
 
+impl File for Noop {
+    async fn read_all(&mut self) -> Result<Vec<u8>, FilesystemError> {
+        unreachable!()
+    }
+
+    async fn read_segment(
+        &mut self,
+        _offset: Offset,
+        _dest: &mut [u8],
+    ) -> Result<usize, FilesystemError> {
+        unreachable!()
+    }
+}
+
 pub(crate) type PathComponent = Vec<u8>;
 pub(crate) type Path = Vec<PathComponent>;
 enum SearchPath {
@@ -110,7 +140,9 @@ enum SearchPath {
     Directory(Path),
 }
 
-pub(crate) async fn search_for_files<D: Directory>(root: &D) -> Result<Vec<Path>, FilesystemError> {
+pub(crate) async fn search_for_files<F: File, D: Directory<F>>(
+    root: &D,
+) -> Result<Vec<Path>, FilesystemError> {
     use SearchPath::*;
     let mut out: Vec<Path> = Vec::new();
     let mut stack: Vec<SearchPath> = Vec::new();
@@ -141,7 +173,10 @@ pub(crate) async fn search_for_files<D: Directory>(root: &D) -> Result<Vec<Path>
     Ok(out)
 }
 
-async fn open_dir_path<D: Directory>(directory: &D, path: &Path) -> Result<D, FilesystemError> {
+async fn open_dir_path<F: File, D: Directory<F>>(
+    directory: &D,
+    path: &Path,
+) -> Result<D, FilesystemError> {
     let mut dir = directory.clone();
     for component in path {
         dir = dir.open_subdir(component).await?;

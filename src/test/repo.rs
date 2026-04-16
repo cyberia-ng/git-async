@@ -1,6 +1,7 @@
 use crate::{
     file_system::{DirEntry, Directory, File, FilesystemError, Offset},
     repo::Repo,
+    traits::AllGenerics,
 };
 use core::cmp::min;
 use std::{
@@ -13,6 +14,12 @@ use std::{
     rc::Rc,
 };
 use tempfile::{TempDir, tempdir};
+
+pub struct TestGenerics;
+impl AllGenerics for TestGenerics {
+    type File = TestRepoFile;
+    type Directory = TestRepoDirectory;
+}
 
 #[derive(Debug, Clone)]
 pub enum TestDirectory {
@@ -110,7 +117,7 @@ impl TestRepo {
         }
     }
 
-    pub fn repo(&self) -> Repo<TestRepoDirectory> {
+    pub fn repo(&self) -> Repo<TestGenerics> {
         Repo::new(self.git_dir())
     }
 
@@ -181,9 +188,7 @@ impl TestRepo {
     }
 }
 
-impl Directory for TestRepoDirectory {
-    type File = TestRepoFile;
-
+impl Directory<TestRepoFile> for TestRepoDirectory {
     async fn open_subdir(&self, name: &[u8]) -> Result<Self, FilesystemError> {
         let new_sub_path = self.sub_path.join(str::from_utf8(name).unwrap());
         if let Err(e) = metadata(self.root.path().join(&new_sub_path))
@@ -219,7 +224,7 @@ impl Directory for TestRepoDirectory {
         Ok(entries)
     }
 
-    async fn open_file(&self, name: &[u8]) -> Result<Self::File, FilesystemError> {
+    async fn open_file(&self, name: &[u8]) -> Result<TestRepoFile, FilesystemError> {
         let file = OpenOptions::new().read(true).open(
             self.root
                 .path()

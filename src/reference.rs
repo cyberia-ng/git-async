@@ -4,6 +4,7 @@ use crate::{
     object::{Commit, ObjectId, Tree},
     parsing::ParseResult,
     repo::Repo,
+    traits::AllGenerics,
 };
 use accessory::Accessors;
 use alloc::vec::Vec;
@@ -29,10 +30,10 @@ pub enum RefName {
 }
 
 impl RefName {
-    pub(crate) async fn open_loose_ref<D: Directory>(
+    pub(crate) async fn open_loose_ref<G: AllGenerics>(
         &self,
-        repo: &Repo<D>,
-    ) -> GResult<Option<D::File>> {
+        repo: &Repo<G>,
+    ) -> GResult<Option<G::File>> {
         use RefName::*;
         let sub_path = match self {
             Head => {
@@ -60,10 +61,10 @@ impl RefName {
     }
 }
 
-#[derive(Clone, Accessors)]
+#[derive(Accessors)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "serde", serde(bound = ""))]
-pub struct Ref<D> {
+pub struct Ref<G: AllGenerics> {
     #[access(get)]
     name: RefName,
 
@@ -71,7 +72,17 @@ pub struct Ref<D> {
     ref_type: RefType,
 
     #[cfg_attr(feature = "serde", serde(skip))]
-    repo: Option<Repo<D>>,
+    repo: Option<Repo<G>>,
+}
+
+impl<G: AllGenerics> Clone for Ref<G> {
+    fn clone(&self) -> Self {
+        Self {
+            name: self.name.clone(),
+            ref_type: self.ref_type.clone(),
+            repo: self.repo.clone(),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -82,8 +93,8 @@ pub enum RefType {
     Symbolic(RefName),
 }
 
-impl<D: Directory> Ref<D> {
-    pub(crate) async fn lookup(repo: &Repo<D>, name: &RefName) -> GResult<Ref<D>> {
+impl<G: AllGenerics> Ref<G> {
+    pub(crate) async fn lookup(repo: &Repo<G>, name: &RefName) -> GResult<Ref<G>> {
         let ref_type = {
             if let Some(reference) = lookup_loose_ref(repo, name).await? {
                 reference
@@ -107,7 +118,7 @@ impl<D: Directory> Ref<D> {
         })
     }
 
-    fn repo(&self) -> GResult<&Repo<D>> {
+    fn repo(&self) -> GResult<&Repo<G>> {
         match &self.repo {
             Some(r) => Ok(r),
             None => Err(Error::NotAnnotatedWithRepo),
@@ -115,7 +126,7 @@ impl<D: Directory> Ref<D> {
     }
 
     pub async fn resolve_object_id(&self) -> GResult<ObjectId> {
-        let mut target = self.clone();
+        let mut target: Ref<G> = self.clone();
         while let RefType::Symbolic(name) = target.ref_type {
             target = self.repo()?.lookup_ref(&name).await?;
         }
@@ -125,13 +136,13 @@ impl<D: Directory> Ref<D> {
         }
     }
 
-    pub async fn peel_to_commit(&self) -> GResult<Option<Commit<D>>> {
+    pub async fn peel_to_commit(&self) -> GResult<Option<Commit<G>>> {
         let oid = self.resolve_object_id().await?;
         let object = self.repo()?.lookup_object(oid).await?;
         object.peel_to_commit().await
     }
 
-    pub async fn peel_to_tree(&self) -> GResult<Option<Tree<D>>> {
+    pub async fn peel_to_tree(&self) -> GResult<Option<Tree<G>>> {
         let oid = self.resolve_object_id().await?;
         let object = self.repo()?.lookup_object(oid).await?;
         object.peel_to_tree().await
@@ -177,8 +188,8 @@ pub(crate) async fn read_packed_refs<F: File>(
     Ok(refs.into_iter().flatten().collect())
 }
 
-pub(crate) async fn lookup_loose_ref<D: Directory>(
-    repo: &Repo<D>,
+pub(crate) async fn lookup_loose_ref<G: AllGenerics>(
+    repo: &Repo<G>,
     name: &RefName,
 ) -> GResult<Option<RefType>> {
     let Some(mut ref_file) = name.open_loose_ref(repo).await? else {

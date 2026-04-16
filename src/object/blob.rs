@@ -48,13 +48,13 @@ mod tests {
     use crate::{
         Repo,
         object::{Object, ObjectType},
-        test::repo::{TestRepo, TestRepoDirectory},
+        test::repo::{TestGenerics, TestRepo},
     };
     use nom::Parser;
 
     const ZERO_OID: ObjectId = ObjectId::new([0; 20]);
 
-    fn dummy_repo() -> Repo<TestRepoDirectory> {
+    fn dummy_repo() -> Repo<TestGenerics> {
         TestRepo::new().unwrap().repo()
     }
 

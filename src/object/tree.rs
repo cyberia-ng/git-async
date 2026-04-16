@@ -1,12 +1,13 @@
 use crate::{
     error::{Error, GResult},
-    file_system::Directory,
     object::{Object, ObjectId},
     parsing::ParseResult,
     repo::Repo,
+    traits::{AllGenerics, Noop},
 };
 use accessory::Accessors;
 use alloc::vec::Vec;
+use core::fmt::Debug;
 use nom::{
     Parser,
     branch::alt,
@@ -29,10 +30,10 @@ pub enum TreeEntryType {
     Commit,
 }
 
-#[derive(Debug, Clone, Accessors)]
+#[derive(Accessors)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "serde", serde(bound = ""))]
-pub struct TreeEntry<D> {
+pub struct TreeEntry<G: AllGenerics> {
     #[access(get(ty(&[u8])))]
     #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
     name: Vec<u8>,
@@ -44,24 +45,43 @@ pub struct TreeEntry<D> {
     id: ObjectId,
 
     #[cfg_attr(feature = "serde", serde(skip))]
-    repo: Option<Repo<D>>,
+    repo: Option<Repo<G>>,
 }
 
-impl<D> PartialEq for TreeEntry<D> {
+impl<G: AllGenerics> PartialEq for TreeEntry<G> {
     fn eq(&self, other: &Self) -> bool {
         self.name == other.name && self.entry_type == other.entry_type && self.id == other.id
     }
 }
-impl<D> Eq for TreeEntry<D> {}
+impl<G: AllGenerics> Eq for TreeEntry<G> {}
+impl<G: AllGenerics> Clone for TreeEntry<G> {
+    fn clone(&self) -> Self {
+        Self {
+            name: self.name.clone(),
+            entry_type: self.entry_type,
+            id: self.id,
+            repo: self.repo.clone(),
+        }
+    }
+}
+impl<G: AllGenerics> Debug for TreeEntry<G> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("TreeEntry")
+            .field("name", &self.name)
+            .field("entry_type", &self.entry_type)
+            .field("id", &self.id)
+            .finish()
+    }
+}
 
-impl<D> TreeEntry<D> {
-    pub(crate) fn repo(&self) -> GResult<&Repo<D>> {
+impl<G: AllGenerics> TreeEntry<G> {
+    pub(crate) fn repo(&self) -> GResult<&Repo<G>> {
         self.repo
             .as_ref()
             .ok_or_else(|| Error::NotAnnotatedWithRepo)
     }
 
-    pub fn detach(self) -> TreeEntry<()> {
+    pub fn detach(self) -> TreeEntry<Noop> {
         TreeEntry {
             name: self.name,
             entry_type: self.entry_type,
@@ -69,51 +89,16 @@ impl<D> TreeEntry<D> {
             repo: None,
         }
     }
-}
 
-impl<D: Directory> TreeEntry<D> {
-    pub async fn lookup(&self) -> GResult<Option<Object<D>>> {
+    pub async fn lookup(&self) -> GResult<Option<Object<G>>> {
         if self.entry_type == TreeEntryType::Commit {
             Ok(None)
         } else {
             Ok(Some(self.repo()?.lookup_object(self.id).await?))
         }
     }
-}
 
-#[derive(Clone, Accessors)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound = ""))]
-pub struct Tree<D> {
-    #[access(get(cp))]
-    id: ObjectId,
-
-    #[access(get(ty(&[TreeEntry<D>])))]
-    entries: Vec<TreeEntry<D>>,
-
-    #[cfg_attr(feature = "serde", serde(skip))]
-    repo: Option<Repo<D>>,
-}
-
-impl<D> PartialEq for Tree<D> {
-    fn eq(&self, other: &Self) -> bool {
-        self.id == other.id
-    }
-}
-impl<D> Eq for Tree<D> {}
-impl<D> PartialOrd for Tree<D> {
-    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        self.id.partial_cmp(&other.id)
-    }
-}
-impl<D> Ord for Tree<D> {
-    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        self.id.cmp(&other.id)
-    }
-}
-
-impl<D: Clone> TreeEntry<D> {
-    fn parser<'a>(repo: &Repo<D>) -> impl Fn(&'a [u8]) -> ParseResult<&'a [u8], Self> {
+    fn parser<'a>(repo: &Repo<G>) -> impl Fn(&'a [u8]) -> ParseResult<&'a [u8], Self> {
         move |input: &'a [u8]| {
             let entry_type_parser = alt((
                 tag("40000").map(|_| TreeEntryType::Tree),
@@ -141,8 +126,48 @@ impl<D: Clone> TreeEntry<D> {
     }
 }
 
-impl<D> Tree<D> {
-    pub fn detach(self) -> Tree<()> {
+#[derive(Accessors)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", serde(bound = ""))]
+pub struct Tree<G: AllGenerics> {
+    #[access(get(cp))]
+    id: ObjectId,
+
+    #[access(get(ty(&[TreeEntry<G>])))]
+    entries: Vec<TreeEntry<G>>,
+
+    #[cfg_attr(feature = "serde", serde(skip))]
+    repo: Option<Repo<G>>,
+}
+
+impl<G: AllGenerics> PartialEq for Tree<G> {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+impl<G: AllGenerics> Eq for Tree<G> {}
+impl<G: AllGenerics> PartialOrd for Tree<G> {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        self.id.partial_cmp(&other.id)
+    }
+}
+impl<G: AllGenerics> Ord for Tree<G> {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.id.cmp(&other.id)
+    }
+}
+impl<G: AllGenerics> Clone for Tree<G> {
+    fn clone(&self) -> Self {
+        Self {
+            id: self.id,
+            entries: self.entries.clone(),
+            repo: self.repo.clone(),
+        }
+    }
+}
+
+impl<G: AllGenerics> Tree<G> {
+    pub fn detach(self) -> Tree<Noop> {
         Tree {
             id: self.id,
             entries: self.entries.into_iter().map(TreeEntry::detach).collect(),
@@ -150,18 +175,16 @@ impl<D> Tree<D> {
         }
     }
 
-    pub(crate) fn repo(&self) -> GResult<&Repo<D>> {
+    pub(crate) fn repo(&self) -> GResult<&Repo<G>> {
         match &self.repo {
             Some(r) => Ok(r),
             None => Err(Error::NotAnnotatedWithRepo),
         }
     }
-}
 
-impl<D: Clone> Tree<D> {
     pub(crate) fn parser<'a>(
         id: ObjectId,
-        repo: &Repo<D>,
+        repo: &Repo<G>,
     ) -> impl Fn(&'a [u8]) -> ParseResult<&'a [u8], Self> {
         move |input: &'a [u8]| {
             many(0.., TreeEntry::parser(repo))
@@ -178,14 +201,13 @@ impl<D: Clone> Tree<D> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test::repo::{TestRepo, TestRepoDirectory};
     use core::iter::zip;
     use hex_literal::hex;
 
     const ZERO_OID: ObjectId = ObjectId::new([0; 20]);
 
-    fn dummy_repo() -> Repo<TestRepoDirectory> {
-        TestRepo::new().unwrap().repo()
+    fn dummy_repo() -> Repo<Noop> {
+        Repo { git_dir: Noop(()) }
     }
 
     #[test]

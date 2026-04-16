@@ -1,9 +1,9 @@
 use crate::{
     error::{Error, GResult},
-    file_system::Directory,
     object::{ObjectHeader, ObjectId, Tree, parse_author_committer_tagger, parse_object_headers},
     parsing::{ParseError, ParseResult},
     repo::Repo,
+    traits::{AllGenerics, Noop},
 };
 use accessory::Accessors;
 use alloc::vec::Vec;
@@ -13,10 +13,10 @@ use nom::{Parser, combinator::all_consuming};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Accessors)]
+#[derive(Accessors)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "serde", serde(bound = ""))]
-pub struct Commit<D> {
+pub struct Commit<G: AllGenerics> {
     #[access(get(cp))]
     id: ObjectId,
 
@@ -56,28 +56,47 @@ pub struct Commit<D> {
     additional_headers: Vec<ObjectHeader>,
 
     #[cfg_attr(feature = "serde", serde(skip))]
-    repo: Option<Repo<D>>,
+    repo: Option<Repo<G>>,
 }
 
-impl<D> PartialEq for Commit<D> {
+impl<G: AllGenerics> PartialEq for Commit<G> {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id
     }
 }
-impl<D> Eq for Commit<D> {}
-impl<D> PartialOrd for Commit<D> {
+impl<G: AllGenerics> Eq for Commit<G> {}
+impl<G: AllGenerics> PartialOrd for Commit<G> {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         self.id.partial_cmp(&other.id)
     }
 }
-impl<D> Ord for Commit<D> {
+impl<G: AllGenerics> Ord for Commit<G> {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         self.id.cmp(&other.id)
     }
 }
 
-impl<D> Commit<D> {
-    pub fn detach(self) -> Commit<()> {
+impl<G: AllGenerics> Clone for Commit<G> {
+    fn clone(&self) -> Self {
+        Self {
+            id: self.id,
+            tree: self.tree,
+            parents: self.parents.clone(),
+            author_name: self.author_name.clone(),
+            author_email: self.author_email.clone(),
+            author_date: self.author_date,
+            committer_name: self.committer_name.clone(),
+            committer_email: self.committer_email.clone(),
+            commit_date: self.commit_date,
+            message: self.message.clone(),
+            additional_headers: self.additional_headers.clone(),
+            repo: self.repo.clone(),
+        }
+    }
+}
+
+impl<G: AllGenerics> Commit<G> {
+    pub fn detach(self) -> Commit<Noop> {
         Commit {
             id: self.id,
             tree: self.tree,
@@ -94,7 +113,20 @@ impl<D> Commit<D> {
         }
     }
 
-    pub(crate) fn repo(&self) -> GResult<&Repo<D>> {
+    pub async fn lookup_tree(&self) -> GResult<Tree<G>> {
+        Ok(self.repo()?.lookup_object(self.tree).await?.tree()?)
+    }
+
+    pub async fn lookup_parents(&self) -> GResult<Vec<Commit<G>>> {
+        let repo = self.repo()?;
+        let mut out = Vec::with_capacity(self.parents.len());
+        for parent in &self.parents {
+            out.push(repo.lookup_object(*parent).await?.commit()?)
+        }
+        Ok(out)
+    }
+
+    pub(crate) fn repo(&self) -> GResult<&Repo<G>> {
         match &self.repo {
             Some(r) => Ok(r),
             None => Err(Error::NotAnnotatedWithRepo),
@@ -102,10 +134,10 @@ impl<D> Commit<D> {
     }
 }
 
-impl<D: Clone> Commit<D> {
+impl<G: AllGenerics> Commit<G> {
     pub(crate) fn parser<'a>(
         id: ObjectId,
-        repo: &Repo<D>,
+        repo: &Repo<G>,
     ) -> impl Fn(&'a [u8]) -> ParseResult<&'a [u8], Self> {
         move |input: &[u8]| {
             let (message, raw_headers) = parse_object_headers.parse(input)?;
@@ -147,7 +179,7 @@ impl<D: Clone> Commit<D> {
                     }
                 }
             }
-            let f = move || -> Option<Commit<D>> {
+            let f = move || -> Option<Commit<G>> {
                 Some(Commit {
                     id,
                     author_name: author_name?,
@@ -171,31 +203,15 @@ impl<D: Clone> Commit<D> {
     }
 }
 
-impl<D: Directory> Commit<D> {
-    pub async fn lookup_tree(&self) -> GResult<Tree<D>> {
-        Ok(self.repo()?.lookup_object(self.tree).await?.tree()?)
-    }
-
-    pub async fn lookup_parents(&self) -> GResult<Vec<Commit<D>>> {
-        let repo = self.repo()?;
-        let mut out = Vec::with_capacity(self.parents.len());
-        for parent in &self.parents {
-            out.push(repo.lookup_object(*parent).await?.commit()?)
-        }
-        Ok(out)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test::repo::{TestRepo, TestRepoDirectory};
     use hex_literal::hex;
 
     const ZERO_OID: ObjectId = ObjectId::new([0; 20]);
 
-    fn dummy_repo() -> Repo<TestRepoDirectory> {
-        TestRepo::new().unwrap().repo()
+    fn dummy_repo() -> Repo<Noop> {
+        Repo { git_dir: Noop(()) }
     }
 
     #[test]

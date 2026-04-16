@@ -4,6 +4,7 @@ use crate::{
     object::{Object, ObjectId},
     object_store::{ObjectSize, ObjectType},
     reference::{Ref, RefName, read_packed_refs},
+    traits::AllGenerics,
 };
 use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
@@ -11,14 +12,22 @@ use alloc::vec::Vec;
 /// A handle to a Git repository
 ///
 /// It is generic over the implementation of filesystem operations.
-#[derive(Debug, Clone)]
-pub struct Repo<D> {
-    pub(crate) git_dir: D,
+#[derive(Debug)]
+pub struct Repo<G: AllGenerics> {
+    pub(crate) git_dir: G::Directory,
 }
 
-impl<D: Directory> Repo<D> {
+impl<G: AllGenerics> Clone for Repo<G> {
+    fn clone(&self) -> Self {
+        Self {
+            git_dir: self.git_dir.clone(),
+        }
+    }
+}
+
+impl<G: AllGenerics> Repo<G> {
     /// Open the repository located at `git_dir`.
-    pub fn new(git_dir: D) -> Self {
+    pub fn new(git_dir: G::Directory) -> Self {
         Repo { git_dir }
     }
 
@@ -53,18 +62,18 @@ impl<D: Directory> Repo<D> {
     }
 
     /// Get the repository's HEAD ref.
-    pub async fn head(&self) -> GResult<Ref<D>> {
+    pub async fn head(&self) -> GResult<Ref<G>> {
         Ref::lookup(self, &RefName::Head).await
     }
 
     /// Take a ref name and look up its content.
-    pub async fn lookup_ref(&self, name: &RefName) -> GResult<Ref<D>> {
+    pub async fn lookup_ref(&self, name: &RefName) -> GResult<Ref<G>> {
         Ref::lookup(self, name).await
     }
 
     /// Look up a particular object in the repository, reading the entire object
     /// into memory.
-    pub async fn lookup_object(&self, id: ObjectId) -> GResult<Object<D>> {
+    pub async fn lookup_object(&self, id: ObjectId) -> GResult<Object<G>> {
         Object::lookup(self, id).await
     }
 
@@ -127,5 +136,21 @@ mod tests {
         .into_iter()
         .collect();
         assert_eq!(&refs, &expected);
+    }
+
+    #[test]
+    fn repo_is_send() {
+        fn _foo<T: Send>(_val: T) {}
+        fn _bar<G: AllGenerics<Directory: Send>>(repo: Repo<G>) {
+            _foo(repo);
+        }
+    }
+
+    #[test]
+    fn repo_is_sync() {
+        fn _foo<T: Sync>(_val: T) {}
+        fn _bar<G: AllGenerics<Directory: Sync>>(repo: Repo<G>) {
+            _foo(repo);
+        }
     }
 }

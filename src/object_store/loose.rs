@@ -13,12 +13,13 @@ use crate::{
     object::ObjectId,
     object_store::{ObjectSize, ObjectType, RawObject},
     repo::Repo,
+    traits::AllGenerics,
 };
 
-async fn get_loose_object_file<D: Directory>(
-    repo: &Repo<D>,
+async fn get_loose_object_file<G: AllGenerics>(
+    repo: &Repo<G>,
     id: ObjectId,
-) -> GResult<Option<D::File>> {
+) -> GResult<Option<G::File>> {
     let (prefix, suffix) = id.id().split_at(1);
     let mut prefix_buf = [0u8; 2];
     hex::encode_to_slice(prefix, &mut prefix_buf)?;
@@ -38,8 +39,8 @@ async fn get_loose_object_file<D: Directory>(
     Ok(Some(file))
 }
 
-pub(crate) async fn read_loose_object_size_type<D: Directory>(
-    repo: &Repo<D>,
+pub(crate) async fn read_loose_object_size_type<G: AllGenerics>(
+    repo: &Repo<G>,
     id: ObjectId,
 ) -> GResult<Option<(ObjectSize, ObjectType)>> {
     let file = get_loose_object_file(repo, id).await?;
@@ -52,8 +53,8 @@ pub(crate) async fn read_loose_object_size_type<D: Directory>(
     Ok(Some((size, object_type)))
 }
 
-pub(crate) async fn read_loose_object<D: Directory>(
-    repo: &Repo<D>,
+pub(crate) async fn read_loose_object<G: AllGenerics>(
+    repo: &Repo<G>,
     id: ObjectId,
 ) -> GResult<Option<RawObject>> {
     let file = get_loose_object_file(repo, id).await?;
