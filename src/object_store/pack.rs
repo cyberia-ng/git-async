@@ -260,6 +260,7 @@ pub(crate) async fn form_deltified_chain<F: File>(
             PackObjectType::RefDelta { base_id } => {
                 let base_offset = find_object_in_pack_index(
                     indexed_pack.fanout,
+                    indexed_pack.offsets,
                     &mut indexed_pack.index,
                     *base_id,
                 )

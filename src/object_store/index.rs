@@ -3,14 +3,14 @@ use crate::{
     file_system::{File, Offset},
     object::ObjectId,
 };
-use alloc::vec;
+use alloc::{vec, vec::Vec};
 use core::cmp::Ordering;
 
-pub(crate) struct IndexFanout {
+pub(crate) struct FanoutTable {
     fanout: [u32; 256],
 }
 
-impl IndexFanout {
+impl FanoutTable {
     pub(crate) async fn load<F: File>(file: &mut F) -> GResult<Self> {
         let mut buf = [0u8; 4 + 4 + 256 * 4];
         let read_size = file.read_segment(Offset(0), &mut buf).await?;
@@ -36,13 +36,44 @@ impl IndexFanout {
     }
 }
 
+pub(crate) struct ShortOffsetTable {
+    table: Vec<u8>,
+}
+
+impl ShortOffsetTable {
+    pub(crate) async fn load<F: File>(file: &mut F, total_objects: u32) -> GResult<Self> {
+        let offset_table = Offset(
+            4 // header
+            + 4 // version
+            + 256 * 4 // fanout
+            + u64::from(total_objects) * 20 // object IDs
+            + u64::from(total_objects) * 4, // CRCs
+        );
+        let table_size: usize = usize::try_from(total_objects).unwrap() * 4;
+        let mut table = vec![0u8; table_size];
+        let read_size = file.read_segment(offset_table, &mut table).await?;
+        if read_size < table_size {
+            return Err(Error::CorruptIndexFile);
+        }
+        Ok(Self { table })
+    }
+
+    pub(crate) fn entry(&self, object_idx: u32) -> u32 {
+        let object_idx: usize = object_idx.try_into().unwrap();
+        let entry_bytes = &self.table[(object_idx * 4)..((object_idx + 1) * 4)];
+        u32::from_be_bytes(entry_bytes.try_into().unwrap())
+    }
+}
+
 pub(crate) async fn find_object_in_pack_index<F: File>(
-    fanout: &IndexFanout,
+    fanout: &FanoutTable,
+    offsets: &ShortOffsetTable,
     idx_file: &mut F,
     id: ObjectId,
 ) -> GResult<Option<Offset>> {
     if let Some(obj_idx) = find_object_idx(fanout, idx_file, id).await? {
-        let offset = get_obj_packfile_offset(idx_file, obj_idx, fanout.total_objects()).await?;
+        let offset =
+            get_obj_packfile_offset(offsets, idx_file, obj_idx, fanout.total_objects()).await?;
         Ok(Some(offset))
     } else {
         Ok(None)
@@ -50,7 +81,7 @@ pub(crate) async fn find_object_in_pack_index<F: File>(
 }
 
 async fn find_object_idx<F: File>(
-    fanout: &IndexFanout,
+    fanout: &FanoutTable,
     idx_file: &mut F,
     id: ObjectId,
 ) -> GResult<Option<u32>> {
@@ -101,19 +132,17 @@ async fn find_object_idx<F: File>(
 }
 
 async fn get_obj_packfile_offset<F: File>(
+    offset_table: &ShortOffsetTable,
     idx_file: &mut F,
     obj_idx: u32,
     total_objects: u32,
 ) -> GResult<Offset> {
-    let fanout: Offset = Offset(0x8);
-    let object_ids: Offset = fanout + 4 * 256;
-    let crc_table: Offset = object_ids + u64::from(total_objects) * 20;
-    let short_table: Offset = crc_table + u64::from(total_objects) * 4;
-    let mut buf = [0u8; 4];
-    let short_entry: Offset = short_table + u64::from(obj_idx) * 4;
-    idx_file.read_segment(short_entry, &mut buf).await?;
-    let packfile_offset_short = u32::from_be_bytes(buf);
+    let packfile_offset_short = offset_table.entry(obj_idx);
     if packfile_offset_short & 0x8000_0000 != 0 {
+        let fanout: Offset = Offset(0x8);
+        let object_ids: Offset = fanout + 4 * 256;
+        let crc_table: Offset = object_ids + u64::from(total_objects) * 20;
+        let short_table: Offset = crc_table + u64::from(total_objects) * 4;
         let long_table_idx: u32 = packfile_offset_short & 0x7fff_ffff;
         let long_table: Offset = short_table + 4 * u64::from(total_objects);
         let long_entry: Offset = long_table + 8 * u64::from(long_table_idx);
@@ -142,7 +171,7 @@ mod tests {
         let repo = make_packfile_repo().unwrap();
         let pack_id = get_pack_id(&repo).unwrap();
         let mut idx_file = repo.pack_idx_file(&pack_id).unwrap();
-        let fanout = block_on(IndexFanout::load(&mut idx_file)).unwrap();
+        let fanout = block_on(FanoutTable::load(&mut idx_file)).unwrap();
         let obj_idx = block_on(find_object_idx(
             &fanout,
             &mut idx_file,
@@ -171,7 +200,12 @@ mod tests {
         let repo = make_packfile_repo().unwrap();
         let pack_id = get_pack_id(&repo).unwrap();
         let mut idx_file = repo.pack_idx_file(&pack_id).unwrap();
-        let fanout = block_on(IndexFanout::load(&mut idx_file)).unwrap();
+        let fanout = block_on(FanoutTable::load(&mut idx_file)).unwrap();
+        let offsets = block_on(ShortOffsetTable::load(
+            &mut idx_file,
+            fanout.total_objects(),
+        ))
+        .unwrap();
         let object_idx = block_on(find_object_idx(
             &fanout,
             &mut idx_file,
@@ -180,6 +214,7 @@ mod tests {
         .unwrap()
         .unwrap();
         block_on(get_obj_packfile_offset(
+            &offsets,
             &mut idx_file,
             object_idx,
             fanout.total_objects(),
@@ -233,7 +268,12 @@ mod tests {
         repo.run_git(["gc"]).unwrap();
         let pack_file_id = get_pack_id(&repo).unwrap();
         let mut idx_file = repo.pack_idx_file(&pack_file_id).unwrap();
-        let fanout = block_on(IndexFanout::load(&mut idx_file)).unwrap();
+        let fanout = block_on(FanoutTable::load(&mut idx_file)).unwrap();
+        let offsets = block_on(ShortOffsetTable::load(
+            &mut idx_file,
+            fanout.total_objects(),
+        ))
+        .unwrap();
         let object_offset = block_on(find_object_idx(
             &fanout,
             &mut idx_file,
@@ -242,6 +282,7 @@ mod tests {
         .unwrap()
         .unwrap();
         let pack_offset = block_on(get_obj_packfile_offset(
+            &offsets,
             &mut idx_file,
             object_offset,
             fanout.total_objects(),

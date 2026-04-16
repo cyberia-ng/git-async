@@ -5,7 +5,7 @@ use crate::{
     object_store::{
         ObjectSize, ObjectType, RawObject,
         cache::PackFileCache,
-        index::{IndexFanout, find_object_in_pack_index},
+        index::{FanoutTable, ShortOffsetTable, find_object_in_pack_index},
         loose::{read_loose_object, read_loose_object_size_type},
         pack::{form_deltified_chain, reconstruct_deltified_object_from_chain},
     },
@@ -34,7 +34,8 @@ impl Pack {
 
 pub(crate) struct IndexedPackFile<'f, F> {
     pub(crate) index: F,
-    pub(crate) fanout: &'f IndexFanout,
+    pub(crate) fanout: &'f FanoutTable,
+    pub(crate) offsets: &'f ShortOffsetTable,
     pub(crate) pack: F,
 }
 
@@ -87,12 +88,12 @@ pub(crate) async fn find_packed_object<G: AllGenerics>(
     pack_cache: &PackFileCache<G>,
     id: ObjectId,
 ) -> GResult<Option<(IndexedPackFile<'_, G::File>, Offset)>> {
-    for (pack_meta, fanout) in &pack_cache.fanouts {
+    for (pack_meta, fanout, offsets) in &pack_cache.indexes {
         let mut idx_file = pack_cache
             .pack_dir
             .open_file(&pack_meta.index_filename)
             .await?;
-        if let Some(offset) = find_object_in_pack_index(fanout, &mut idx_file, id).await? {
+        if let Some(offset) = find_object_in_pack_index(fanout, offsets, &mut idx_file, id).await? {
             let pack_file = pack_cache
                 .pack_dir
                 .open_file(&pack_meta.pack_filename)
@@ -100,6 +101,7 @@ pub(crate) async fn find_packed_object<G: AllGenerics>(
             return Ok(Some((
                 IndexedPackFile {
                     fanout,
+                    offsets,
                     index: idx_file,
                     pack: pack_file,
                 },
