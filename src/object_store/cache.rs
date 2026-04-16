@@ -4,7 +4,7 @@ use crate::{
     file_system::{DirEntry, Directory},
     object_store::{
         index::{FanoutTable, ShortOffsetTable},
-        lookup::Pack,
+        lookup::PackName,
         pack::validate_packfile_version,
     },
     repo::RepoCache,
@@ -15,7 +15,7 @@ use alloc::vec::Vec;
 
 pub struct PackFileCache<G: AllGenerics> {
     pub pack_dir: G::Directory,
-    pub indexes: Vec<(Pack, FanoutTable, ShortOffsetTable)>,
+    pub indexes: Vec<(PackName, FanoutTable, ShortOffsetTable)>,
 }
 
 impl<G: AllGenerics> PackFileCache<G> {
@@ -26,14 +26,14 @@ impl<G: AllGenerics> PackFileCache<G> {
             .await?
             .open_subdir(b"pack")
             .await?;
-        let pack_ids: Vec<Pack> = pack_dir
+        let pack_ids: Vec<PackName> = pack_dir
             .list_dir()
             .await?
             .into_iter()
-            .filter_map(|dirent| -> Option<Pack> {
+            .filter_map(|dirent| -> Option<PackName> {
                 use DirEntry::*;
                 let File(name) = dirent else { None? };
-                Pack::new(name)
+                PackName::new(name)
             })
             .collect();
         let mut fanouts = Vec::with_capacity(pack_ids.len());

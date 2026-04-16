@@ -14,12 +14,12 @@ use crate::{
 };
 use alloc::vec::Vec;
 
-pub(crate) struct Pack {
+pub(crate) struct PackName {
     pub(crate) index_filename: Vec<u8>,
     pub(crate) pack_filename: Vec<u8>,
 }
 
-impl Pack {
+impl PackName {
     pub(crate) fn new(filename: Vec<u8>) -> Option<Self> {
         let stripped = filename.strip_suffix(b".idx")?;
         let mut pack_filename = Vec::with_capacity(filename.len() + 1);
