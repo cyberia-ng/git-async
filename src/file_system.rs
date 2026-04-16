@@ -49,9 +49,6 @@ pub enum FilesystemError {
 /// platforms which implement directory handles, this should encapsulate the
 /// handle.
 pub trait Directory<File>: Sized + Clone {
-    /// The type of files which can be opened using [`Directory::open_file`]
-    // type File: File;
-
     /// Open a subdirectory of this directory
     fn open_subdir(&self, name: &[u8]) -> impl Future<Output = Result<Self, FilesystemError>>;
 

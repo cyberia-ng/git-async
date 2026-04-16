@@ -23,7 +23,7 @@ impl PartialEq for Blob {
 impl Eq for Blob {}
 impl PartialOrd for Blob {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        self.id.partial_cmp(&other.id)
+        Some(self.cmp(other))
     }
 }
 impl Ord for Blob {

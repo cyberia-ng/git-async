@@ -67,7 +67,7 @@ impl<G: AllGenerics> PartialEq for Commit<G> {
 impl<G: AllGenerics> Eq for Commit<G> {}
 impl<G: AllGenerics> PartialOrd for Commit<G> {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        self.id.partial_cmp(&other.id)
+        Some(self.cmp(other))
     }
 }
 impl<G: AllGenerics> Ord for Commit<G> {

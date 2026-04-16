@@ -68,7 +68,7 @@ impl<G: AllGenerics> PartialEq for Tag<G> {
 impl<G: AllGenerics> Eq for Tag<G> {}
 impl<G: AllGenerics> PartialOrd for Tag<G> {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        self.id.partial_cmp(&other.id)
+        Some(self.cmp(other))
     }
 }
 impl<G: AllGenerics> Ord for Tag<G> {

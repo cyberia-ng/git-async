@@ -148,7 +148,7 @@ impl<G: AllGenerics> PartialEq for Tree<G> {
 impl<G: AllGenerics> Eq for Tree<G> {}
 impl<G: AllGenerics> PartialOrd for Tree<G> {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        self.id.partial_cmp(&other.id)
+        Some(self.cmp(other))
     }
 }
 impl<G: AllGenerics> Ord for Tree<G> {
