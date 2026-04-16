@@ -191,7 +191,7 @@ mod tests {
         fs::{OpenOptions, create_dir},
         io::{self, Write},
         path::PathBuf,
-        rc::Rc,
+        sync::Arc,
     };
     use tempfile::TempDir;
 
@@ -221,7 +221,7 @@ mod tests {
         ];
         expected.sort();
         let dir = TestRepoDirectory {
-            root: TestDirectory::Temp(Rc::new(dir)),
+            root: TestDirectory::Temp(Arc::new(dir)),
             sub_path: PathBuf::new(),
         };
         let mut paths = block_on(search_for_files(&dir)).unwrap();

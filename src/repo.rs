@@ -98,7 +98,12 @@ impl<G: AllGenerics> Repo<G> {
 mod tests {
     use crate::{
         reference::RefType,
-        test::{helpers::make_basic_repo, repo::TestRepo},
+        test::{
+            directory::{TestRepoDirectory, TestRepoFile},
+            helpers::make_basic_repo,
+            lock::StdLock,
+            repo::TestRepo,
+        },
     };
     use futures::executor::block_on;
 
@@ -148,13 +153,17 @@ mod tests {
         assert_eq!(&refs, &expected);
     }
 
+    #[expect(dead_code)]
+    struct MultithreadGenerics;
+    impl AllGenerics for MultithreadGenerics {
+        type File = TestRepoFile;
+        type Directory = TestRepoDirectory;
+        type SharedCell<T: 'static> = StdLock<T>;
+    }
     #[test]
     fn repo_is_send() {
         fn _foo<T: Send>(_val: T) {}
-        fn _bar<G>(repo: Repo<G>)
-        where
-            G: AllGenerics<Directory: Send, SharedCell<RepoCache<G>>: Send>,
-        {
+        fn _bar(repo: Repo<MultithreadGenerics>) {
             _foo(repo);
         }
     }
@@ -162,7 +171,7 @@ mod tests {
     #[test]
     fn repo_is_sync() {
         fn _foo<T: Sync>(_val: T) {}
-        fn _bar<G: AllGenerics<Directory: Sync, SharedCell<RepoCache<G>>: Sync>>(repo: Repo<G>) {
+        fn _bar(repo: Repo<MultithreadGenerics>) {
             _foo(repo);
         }
     }

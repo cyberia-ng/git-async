@@ -7,7 +7,6 @@ use std::{
     fs,
     io::{self, Read, Seek, Write},
     path::PathBuf,
-    rc::Rc,
 };
 
 #[derive(Debug, Clone)]
@@ -108,7 +107,7 @@ impl File for TestRepoFile {
 mod tests {
     use super::*;
     use futures::executor::block_on;
-    use std::fs::OpenOptions;
+    use std::{fs::OpenOptions, sync::Arc};
     use tempfile::tempdir;
 
     #[test]
@@ -125,7 +124,7 @@ mod tests {
             .unwrap();
         f.write_all(&test_contents).unwrap();
         let dir = TestRepoDirectory {
-            root: TestDirectory::Temp(Rc::new(dir)),
+            root: TestDirectory::Temp(Arc::new(dir)),
             sub_path: PathBuf::new(),
         };
         let offset = Offset(700);

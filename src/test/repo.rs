@@ -13,13 +13,13 @@ use std::{
     os::unix::ffi::OsStrExt,
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    rc::Rc,
+    sync::Arc,
 };
 use tempfile::{TempDir, tempdir};
 
 #[derive(Debug, Clone)]
 pub enum TestDirectory {
-    Temp(Rc<TempDir>),
+    Temp(Arc<TempDir>),
 
     // This is for debugging operations on real repos, the tests for which are
     // not to be committed.
@@ -81,7 +81,7 @@ impl TestRepo {
     pub fn new() -> io::Result<Self> {
         let dir = tempdir()?;
         let repo = TestRepo {
-            location: TestDirectory::Temp(Rc::new(dir)),
+            location: TestDirectory::Temp(Arc::new(dir)),
         };
         repo.run_git(["init"])?;
         repo.set_user("a user", "an-email-address")?;
