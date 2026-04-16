@@ -4,7 +4,11 @@ use core::{
     cell::RefCell,
     ops::{Deref, DerefMut},
 };
+#[cfg(feature = "serde")]
+use serde::Serialize;
 
+#[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum SharedCellError {
     LockPoisoned,
     Borrowed,

@@ -3,6 +3,7 @@ use crate::{
     object::{ObjectId, ObjectType},
     parsing::ParseError,
     reference::RefName,
+    sync::SharedCellError,
 };
 use accessory::Accessors;
 use alloc::vec::Vec;
@@ -21,6 +22,7 @@ pub enum Error {
     DecompressError(#[cfg_attr(feature = "serde", serde(skip))] DecompressError),
     FromHexError(#[cfg_attr(feature = "serde", serde(skip))] hex::FromHexError),
     UnsupportedIndexVersion,
+    CorruptIndexFile,
     UnsupportedPackVersion,
     MalformedPackedRefs,
     MalformedRef(RefName),
@@ -38,6 +40,7 @@ pub enum Error {
     UnexpectedThinPack,
     NotAnnotatedWithRepo,
     UnexpectedObjectType(UnexpectedObjectType),
+    SharedCellError(SharedCellError),
 }
 
 #[derive(Debug, Accessors)]
@@ -54,6 +57,12 @@ pub struct UnexpectedObjectType {
 impl From<UnexpectedObjectType> for Error {
     fn from(value: UnexpectedObjectType) -> Self {
         Self::UnexpectedObjectType(value)
+    }
+}
+
+impl From<SharedCellError> for Error {
+    fn from(value: SharedCellError) -> Self {
+        Self::SharedCellError(value)
     }
 }
 

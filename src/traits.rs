@@ -5,7 +5,7 @@ use crate::{
     sync::SharedCell,
 };
 
-pub trait AllGenerics {
+pub trait AllGenerics: 'static {
     type File: File;
     type Directory: Directory<Self::File>;
     type SharedCell<T: 'static>: SharedCell<T>;

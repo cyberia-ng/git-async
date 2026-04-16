@@ -3,6 +3,7 @@ use alloc::vec::Vec;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
+pub(crate) mod cache;
 mod index;
 pub(crate) mod lookup;
 mod loose;

@@ -2,7 +2,7 @@ use crate::{
     error::GResult,
     file_system::{Directory, FilesystemError, search_for_files},
     object::{Object, ObjectId},
-    object_store::{ObjectSize, ObjectType},
+    object_store::{ObjectSize, ObjectType, cache::PackFileCache},
     reference::{Ref, RefName, read_packed_refs},
     sync::SharedCell,
     traits::AllGenerics,
@@ -10,20 +10,24 @@ use crate::{
 use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
 
+pub(crate) struct RepoCache<G: AllGenerics> {
+    pub(crate) pack_cache: Option<PackFileCache<G>>,
+}
+
 /// A handle to a Git repository
 ///
 /// It is generic over the implementation of filesystem operations.
 #[derive(Debug)]
 pub struct Repo<G: AllGenerics> {
     pub(crate) git_dir: G::Directory,
-    pub(crate) shared_data: G::SharedCell<()>,
+    pub(crate) cache: G::SharedCell<RepoCache<G>>,
 }
 
 impl<G: AllGenerics> Clone for Repo<G> {
     fn clone(&self) -> Self {
         Self {
             git_dir: self.git_dir.clone(),
-            shared_data: self.shared_data.clone(),
+            cache: self.cache.clone(),
         }
     }
 }
@@ -33,7 +37,7 @@ impl<G: AllGenerics> Repo<G> {
     pub fn new(git_dir: G::Directory) -> Self {
         Repo {
             git_dir,
-            shared_data: G::SharedCell::new(()),
+            cache: G::SharedCell::new(RepoCache { pack_cache: None }),
         }
     }
 
@@ -149,7 +153,7 @@ mod tests {
         fn _foo<T: Send>(_val: T) {}
         fn _bar<G>(repo: Repo<G>)
         where
-            G: AllGenerics<Directory: Send, SharedCell<()>: Send>,
+            G: AllGenerics<Directory: Send, SharedCell<RepoCache<G>>: Send>,
         {
             _foo(repo);
         }
@@ -158,7 +162,7 @@ mod tests {
     #[test]
     fn repo_is_sync() {
         fn _foo<T: Sync>(_val: T) {}
-        fn _bar<G: AllGenerics<Directory: Sync, SharedCell<()>: Sync>>(repo: Repo<G>) {
+        fn _bar<G: AllGenerics<Directory: Sync, SharedCell<RepoCache<G>>: Sync>>(repo: Repo<G>) {
             _foo(repo);
         }
     }

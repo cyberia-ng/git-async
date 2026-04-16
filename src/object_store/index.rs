@@ -5,44 +5,67 @@ use crate::{
 };
 use core::cmp::Ordering;
 
+pub(crate) struct IndexFanout {
+    fanout: [u32; 256],
+}
+
+impl IndexFanout {
+    pub(crate) async fn load<F: File>(file: &mut F) -> GResult<Self> {
+        let mut buf = [0u8; 4 + 4 + 256 * 4];
+        let read_size = file.read_segment(Offset(0), &mut buf).await?;
+        if read_size != buf.len() {
+            return Err(Error::CorruptIndexFile);
+        }
+        if buf[0..8] != [0xff, b't', b'O', b'c', 0, 0, 0, 2] {
+            return Err(Error::UnsupportedIndexVersion);
+        }
+        let mut fanout = [0u32; 256];
+        for (entry_bytes, entry) in buf[8..].chunks(4).zip(fanout.iter_mut()) {
+            *entry = u32::from_be_bytes(entry_bytes.try_into().unwrap());
+        }
+        Ok(Self { fanout })
+    }
+
+    pub(crate) fn entry(&self, prefix: u8) -> u32 {
+        self.fanout[usize::from(prefix)]
+    }
+
+    pub(crate) fn total_objects(&self) -> u32 {
+        *self.fanout.last().unwrap()
+    }
+}
+
 pub(crate) async fn find_object_in_pack_index<F: File>(
+    fanout: &IndexFanout,
     idx_file: &mut F,
     id: ObjectId,
 ) -> GResult<Option<Offset>> {
-    if let Some((obj_idx, total_objects)) = find_object_idx(idx_file, id).await? {
-        let offset = get_obj_packfile_offset(idx_file, obj_idx, total_objects).await?;
+    if let Some(obj_idx) = find_object_idx(fanout, idx_file, id).await? {
+        let offset = get_obj_packfile_offset(idx_file, obj_idx, fanout.total_objects()).await?;
         Ok(Some(offset))
     } else {
         Ok(None)
     }
 }
 
-async fn find_object_idx<F: File>(file: &mut F, id: ObjectId) -> GResult<Option<(u32, u32)>> {
-    let mut buf = [0u8; 8];
-    file.read_segment(Offset(0), &mut buf).await?;
-    if buf != [0xff, b't', b'O', b'c', 0, 0, 0, 2] {
-        return Err(Error::UnsupportedIndexVersion);
-    }
-    let mut buf = [0u8; 4];
-    let fanout: Offset = Offset(0x08);
-
-    file.read_segment(fanout + 4 * 0xff, &mut buf).await?;
-    let total_objects = u32::from_be_bytes(buf);
-
+async fn find_object_idx<F: File>(
+    fanout: &IndexFanout,
+    idx_file: &mut F,
+    id: ObjectId,
+) -> GResult<Option<u32>> {
     let first_oid_byte = id.id()[0];
-    let fanout_oid: Offset = fanout + 4 * u64::from(first_oid_byte);
-
     let prev_fanout_entry = if first_oid_byte == 0 {
         0
     } else {
-        file.read_segment(fanout_oid - 4, &mut buf).await?;
-        u32::from_be_bytes(buf)
+        fanout.entry(first_oid_byte - 1)
     };
+    let fanout_entry = fanout.entry(first_oid_byte);
 
-    file.read_segment(fanout_oid, &mut buf).await?;
-    let fanout_entry = u32::from_be_bytes(buf);
-
-    let ids_offset = fanout + 4 * 256;
+    let ids_offset = Offset(
+        4 // magic number
+        + 4 // version
+        + 256 * 4, // fanout
+    );
     let mut buf = [0u8; 20];
     let mut lower_idx = prev_fanout_entry; // inclusive
     let mut upper_idx = fanout_entry; // exclusive
@@ -50,7 +73,7 @@ async fn find_object_idx<F: File>(file: &mut F, id: ObjectId) -> GResult<Option<
     while obj_idx.is_none() && lower_idx < upper_idx {
         let mid_idx: u32 = u32::midpoint(lower_idx, upper_idx);
         let mid_offset: Offset = ids_offset + u64::from(mid_idx) * 20;
-        file.read_segment(mid_offset, &mut buf).await?;
+        idx_file.read_segment(mid_offset, &mut buf).await?;
         match buf.cmp(id.id()) {
             Ordering::Equal => {
                 obj_idx = Some(mid_idx);
@@ -63,7 +86,7 @@ async fn find_object_idx<F: File>(file: &mut F, id: ObjectId) -> GResult<Option<
             }
         }
     }
-    Ok(obj_idx.map(|idx| (idx, total_objects)))
+    Ok(obj_idx)
 }
 
 async fn get_obj_packfile_offset<F: File>(
@@ -108,19 +131,23 @@ mod tests {
         let repo = make_packfile_repo().unwrap();
         let pack_id = get_pack_id(&repo).unwrap();
         let mut idx_file = repo.pack_idx_file(&pack_id).unwrap();
+        let fanout = block_on(IndexFanout::load(&mut idx_file)).unwrap();
         let obj_idx = block_on(find_object_idx(
+            &fanout,
             &mut idx_file,
             ObjectId::new(hex!("78dc5b70bd81aa46ec7dfce87a69826e354a916b")),
         ))
         .unwrap();
         assert!(obj_idx.is_some());
         let null_obj_idx = block_on(find_object_idx(
+            &fanout,
             &mut idx_file,
             ObjectId::new(hex!("0000000000000000000000000000000000000000")),
         ))
         .unwrap();
         assert_eq!(null_obj_idx, None);
         let similar_obj_idx = block_on(find_object_idx(
+            &fanout,
             &mut idx_file,
             ObjectId::new(hex!("7800000000000000000000000000000000000000")),
         ))
@@ -133,7 +160,9 @@ mod tests {
         let repo = make_packfile_repo().unwrap();
         let pack_id = get_pack_id(&repo).unwrap();
         let mut idx_file = repo.pack_idx_file(&pack_id).unwrap();
-        let (object_idx, total_objects) = block_on(find_object_idx(
+        let fanout = block_on(IndexFanout::load(&mut idx_file)).unwrap();
+        let object_idx = block_on(find_object_idx(
+            &fanout,
             &mut idx_file,
             ObjectId::new(hex!("78dc5b70bd81aa46ec7dfce87a69826e354a916b")),
         ))
@@ -142,7 +171,7 @@ mod tests {
         block_on(get_obj_packfile_offset(
             &mut idx_file,
             object_idx,
-            total_objects,
+            fanout.total_objects(),
         ))
         .unwrap();
     }
@@ -193,7 +222,9 @@ mod tests {
         repo.run_git(["gc"]).unwrap();
         let pack_file_id = get_pack_id(&repo).unwrap();
         let mut idx_file = repo.pack_idx_file(&pack_file_id).unwrap();
-        let (object_offset, total_objects) = block_on(find_object_idx(
+        let fanout = block_on(IndexFanout::load(&mut idx_file)).unwrap();
+        let object_offset = block_on(find_object_idx(
+            &fanout,
             &mut idx_file,
             expected_blob_id_another_huge_file,
         ))
@@ -202,7 +233,7 @@ mod tests {
         let pack_offset = block_on(get_obj_packfile_offset(
             &mut idx_file,
             object_offset,
-            total_objects,
+            fanout.total_objects(),
         ))
         .unwrap();
         assert!(pack_offset.0 >= 0x8000_0000);
