@@ -20,8 +20,6 @@ use miniz_oxide::inflate::{
     },
 };
 
-const BODY_READ_CHUNK_SIZE: usize = 4096;
-
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 struct PackNegativeOffset(pub u64);
 
@@ -36,7 +34,7 @@ enum PackObjectType {
 pub(crate) struct PackObject {
     pub body_offset: Offset,
     pub size: ObjectSize,
-    pub body_initial: Vec<u8>,
+    // pub body_initial: Vec<u8>,
 }
 
 // Git uses three slightly different algorithms for encoding variable-width
@@ -149,13 +147,9 @@ async fn read_pack_object_header<F: File>(
     pack_file: &mut F,
     offset: Offset,
 ) -> IResult<(PackObjectType, PackObject)> {
-    // buf size must be enough to encode a u64::MAX in one of git's variable
-    // size encodings - i.e. at least 10 bytes
-    let mut buf = vec![
-        0u8;
-        10 // u64::MAX in header encoding
-        + 20 // Ref delta object ID, or u64::MAX in offset delta
-        + BODY_READ_CHUNK_SIZE
+    let mut buf = [0u8;
+        10 // u64::MAX in object size encoding
+        + 20 // max(u64::MAX in offset delta encoding, object ID in ref delta)
     ];
     let mut pos: usize = 0;
     let eof_pos = pack_file
@@ -185,15 +179,11 @@ async fn read_pack_object_header<F: File>(
         }
     }
 
-    let mut body_initial = Vec::with_capacity(BODY_READ_CHUNK_SIZE);
-    body_initial.extend_from_slice(&buf[pos..(pos + BODY_READ_CHUNK_SIZE)]);
-
     Ok((
         object_type,
         PackObject {
             body_offset: Offset(offset.0 + (pos as u64)),
             size: obj_size,
-            body_initial,
         },
     ))
 }
@@ -205,11 +195,17 @@ async fn read_pack_object_body<F: File>(
     let object_size =
         usize::try_from(object.size.0).map_err(|_| InternalObjectError::ObjectTooLarge)?;
     let mut pos = 0;
-    let mut compressed_body_buf = object.body_initial.clone();
+    let mut compressed_body_buf = [0u8; 512];
     let mut body = vec![0u8; object_size];
     let mut state = Box::<DecompressorOxide>::default();
     let mut out_idx: usize = 0;
     loop {
+        pack_file
+            .read_segment(
+                object.body_offset + u64::try_from(pos).unwrap(),
+                &mut compressed_body_buf,
+            )
+            .await?;
         let (status, input_read, output_written) = decompress(
             &mut state,
             &compressed_body_buf,
@@ -237,12 +233,6 @@ async fn read_pack_object_body<F: File>(
                 ));
             }
         }
-        pack_file
-            .read_segment(
-                object.body_offset + u64::try_from(pos).unwrap(),
-                &mut compressed_body_buf,
-            )
-            .await?;
     }
     Ok(body)
 }

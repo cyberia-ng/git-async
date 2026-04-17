@@ -76,23 +76,33 @@ impl Directory<Detached> for Detached {
 }
 
 /// An offset within a file; a newtype wrapper around a [`u64`]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Offset(pub u64);
 
 impl core::ops::Add<u64> for Offset {
     type Output = Self;
-
     fn add(self, rhs: u64) -> Self::Output {
         Self(self.0 + rhs)
     }
 }
-
 impl core::ops::Sub<u64> for Offset {
     type Output = Self;
-
     fn sub(self, rhs: u64) -> Self::Output {
         Self(self.0 - rhs)
+    }
+}
+impl core::ops::Div<u64> for Offset {
+    type Output = Self;
+
+    fn div(self, rhs: u64) -> Self::Output {
+        Self(self.0 / rhs)
+    }
+}
+impl core::ops::Mul<u64> for Offset {
+    type Output = Self;
+    fn mul(self, rhs: u64) -> Self::Output {
+        Self(self.0 * rhs)
     }
 }
 

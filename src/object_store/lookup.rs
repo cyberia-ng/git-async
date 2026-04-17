@@ -8,6 +8,7 @@ use crate::{
         index::{FanoutTable, ShortOffsetTable, find_object_in_pack_index},
         loose::{read_loose_object, read_loose_object_size_type},
         pack::{form_deltified_chain, reconstruct_deltified_object_from_chain},
+        page_read::CachingPageReader,
     },
     repo::Repo,
     traits::AllGenerics,
@@ -36,7 +37,7 @@ pub(crate) struct IndexedPackFile<'f, F> {
     pub(crate) index: F,
     pub(crate) fanout: &'f FanoutTable,
     pub(crate) offsets: &'f ShortOffsetTable,
-    pub(crate) pack: F,
+    pub(crate) pack: CachingPageReader<F>,
 }
 
 pub(crate) async fn lookup_size_type<G: AllGenerics>(
@@ -103,7 +104,7 @@ pub(crate) async fn find_packed_object<G: AllGenerics>(
                     fanout,
                     offsets,
                     index: idx_file,
-                    pack: pack_file,
+                    pack: CachingPageReader::new(pack_file),
                 },
                 offset,
             )));
