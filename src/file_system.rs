@@ -15,6 +15,8 @@
 
 use alloc::{boxed::Box, vec::Vec};
 use core::{any::Any, future::Future};
+#[cfg(feature = "serde")]
+use serde::Serialize;
 
 use crate::traits::Detached;
 
@@ -75,6 +77,7 @@ impl Directory<Detached> for Detached {
 
 /// An offset within a file; a newtype wrapper around a [`u64`]
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Offset(pub u64);
 
 impl core::ops::Add<u64> for Offset {

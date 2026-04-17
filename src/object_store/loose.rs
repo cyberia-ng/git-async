@@ -22,9 +22,9 @@ async fn get_loose_object_file<G: AllGenerics>(
 ) -> GResult<Option<G::File>> {
     let (prefix, suffix) = id.id().split_at(1);
     let mut prefix_buf = [0u8; 2];
-    hex::encode_to_slice(prefix, &mut prefix_buf)?;
+    hex::encode_to_slice(prefix, &mut prefix_buf).unwrap();
     let mut suffix_buf = [0u8; 2 * 19];
-    hex::encode_to_slice(suffix, &mut suffix_buf)?;
+    hex::encode_to_slice(suffix, &mut suffix_buf).unwrap();
     let mut dir = repo.git_dir.open_subdir(b"objects").await?;
     dir = match dir.open_subdir(&prefix_buf).await {
         Ok(d) => d,
@@ -62,7 +62,10 @@ pub(crate) async fn read_loose_object<G: AllGenerics>(
         return Ok(None);
     };
     let data = file.read_all().await?;
-    let data = decompress_to_vec_zlib(&data)?;
+    let data = decompress_to_vec_zlib(&data).map_err(|e| Error::LooseObjectDecompressError {
+        id,
+        status: e.status,
+    })?;
     let (body, (_, object_type)) = parse_header(&data).map_err(|_| Error::MalformedObject(id))?;
     Ok(Some(RawObject {
         object_type,

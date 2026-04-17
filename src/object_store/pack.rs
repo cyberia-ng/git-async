@@ -1,5 +1,5 @@
 use crate::{
-    error::{Error, GResult, IResult, InternalObjectError},
+    error::{Error, GResult, IResult, InternalObjectError, PackDecompressError},
     file_system::{File, Offset},
     object::ObjectId,
     object_store::{
@@ -10,7 +10,7 @@ use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
 use miniz_oxide::inflate::{
-    DecompressError, TINFLStatus,
+    TINFLStatus,
     core::{
         DecompressorOxide, decompress,
         inflate_flags::{
@@ -225,12 +225,16 @@ async fn read_pack_object_body<F: File>(
         match status {
             Done => break,
             NeedsMoreInput => {}
+            HasMoreOutput => {}
             _ => {
-                return Err(Error::DecompressError(DecompressError {
-                    status,
-                    output: Vec::new(),
-                })
-                .into());
+                return Err(InternalObjectError::PackObjectDecompressError(
+                    PackDecompressError {
+                        status,
+                        input_position: pos,
+                        output_position: out_idx,
+                        pack_offset: object.body_offset,
+                    },
+                ));
             }
         }
         pack_file
