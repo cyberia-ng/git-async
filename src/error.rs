@@ -3,7 +3,6 @@ use crate::{
     object::{ObjectId, ObjectType},
     parsing::ParseError,
     reference::RefName,
-    sync::SharedCellError,
 };
 use accessory::Accessors;
 use alloc::vec::Vec;
@@ -60,18 +59,11 @@ pub enum Error {
     UnexpectedThinPack,
     NotAnnotatedWithRepo,
     UnexpectedObjectType(UnexpectedObjectType),
-    SharedCellError(SharedCellError),
 }
 
 impl From<UnexpectedObjectType> for Error {
     fn from(value: UnexpectedObjectType) -> Self {
         Self::UnexpectedObjectType(value)
-    }
-}
-
-impl From<SharedCellError> for Error {
-    fn from(value: SharedCellError) -> Self {
-        Self::SharedCellError(value)
     }
 }
 

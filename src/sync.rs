@@ -1,73 +1,20 @@
 use crate::traits::Detached;
 use alloc::rc::Rc;
-use core::{
-    cell::RefCell,
-    ops::{Deref, DerefMut},
-};
-#[cfg(feature = "serde")]
-use serde::Serialize;
+use core::ops::{Deref, DerefMut};
 
-#[derive(Debug)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-pub enum SharedCellError {
-    LockPoisoned,
-    Borrowed,
-}
-
-pub trait SharedCell<Inner: ?Sized + 'static>: Sized + Clone {
-    type Guard<'a>: Deref<Target = Inner>
-    where
-        Self: 'a;
-    type MutGuard<'a>: DerefMut<Target = Inner>
-    where
-        Self: 'a;
-
+pub trait SharedRef<Inner: 'static>: Sized + Clone + Deref<Target = Inner> {
     fn new(value: Inner) -> Self;
-
-    fn get<'a>(&'a self) -> impl Future<Output = Result<Self::Guard<'a>, SharedCellError>>;
-
-    fn get_mut<'a>(&'a self) -> impl Future<Output = Result<Self::MutGuard<'a>, SharedCellError>>;
 }
 
-pub struct SingleThreadedRcCell<T>(Rc<RefCell<T>>);
-impl<T> Clone for SingleThreadedRcCell<T> {
-    fn clone(&self) -> Self {
-        Self(self.0.clone())
-    }
-}
-
-impl<T: 'static> SharedCell<T> for SingleThreadedRcCell<T> {
-    type Guard<'a> = core::cell::Ref<'a, T>;
-    type MutGuard<'a> = core::cell::RefMut<'a, T>;
-
+impl<T: 'static> SharedRef<T> for Rc<T> {
     fn new(value: T) -> Self {
-        Self(Rc::new(RefCell::new(value)))
-    }
-
-    async fn get<'a>(&'a self) -> Result<Self::Guard<'a>, SharedCellError> {
-        self.0.try_borrow().map_err(|_| SharedCellError::Borrowed)
-    }
-
-    async fn get_mut<'a>(&'a self) -> Result<Self::MutGuard<'a>, SharedCellError> {
-        self.0
-            .try_borrow_mut()
-            .map_err(|_| SharedCellError::Borrowed)
+        Rc::new(value)
     }
 }
 
-impl<T: 'static> SharedCell<T> for Detached<T> {
-    type Guard<'a> = Detached<T>;
-    type MutGuard<'a> = Detached<T>;
-
+impl<T: 'static> SharedRef<T> for Detached<T> {
     fn new(_value: T) -> Self {
-        Self::new()
-    }
-
-    async fn get<'a>(&'a self) -> Result<Self::Guard<'a>, SharedCellError> {
-        unreachable!()
-    }
-    async fn get_mut<'a>(&'a self) -> Result<Self::MutGuard<'a>, SharedCellError> {
-        unreachable!()
+        Detached::new()
     }
 }
 
@@ -84,6 +31,3 @@ impl<T> DerefMut for Detached<T> {
         unreachable!()
     }
 }
-
-#[cfg(test)]
-mod tests {}

@@ -193,7 +193,7 @@ mod tests {
     const ZERO_OID: ObjectId = ObjectId::new([0; 20]);
 
     fn dummy_repo() -> Repo<Detached> {
-        Repo::new(Detached::new())
+        Repo::detached()
     }
 
     #[test]

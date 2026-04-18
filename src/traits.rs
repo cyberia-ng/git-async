@@ -2,13 +2,13 @@ use core::marker::PhantomData;
 
 use crate::{
     file_system::{Directory, File},
-    sync::SharedCell,
+    sync::SharedRef,
 };
 
 pub trait AllGenerics: 'static {
     type File: File;
     type Directory: Directory<Self::File>;
-    type SharedCell<T: 'static>: SharedCell<T>;
+    type SharedRef<T: 'static>: SharedRef<T>;
 }
 
 #[derive(Debug)]
@@ -27,5 +27,5 @@ impl<T> Clone for Detached<T> {
 impl AllGenerics for Detached {
     type File = Detached;
     type Directory = Detached;
-    type SharedCell<T: 'static> = Detached<T>;
+    type SharedRef<T: 'static> = Detached<T>;
 }

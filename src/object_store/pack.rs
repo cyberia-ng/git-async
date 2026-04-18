@@ -347,10 +347,13 @@ mod tests {
     use crate::{
         object::ObjectId,
         object_store::{
-            cache::PackFileCache,
+            cache::IndexCache,
             lookup::{find_packed_object, lookup},
         },
-        test::helpers::{make_basic_repo, make_packfile_repo, make_similar_commits},
+        test::{
+            helpers::{make_basic_repo, make_packfile_repo, make_similar_commits},
+            impls::TestGenerics,
+        },
     };
     use futures::executor::block_on;
     use hex_literal::hex;
@@ -432,7 +435,7 @@ a tag
         let test_repo = make_basic_repo().unwrap();
         make_similar_commits(&test_repo).unwrap();
         test_repo.run_git(["gc"]).unwrap();
-        let cache = block_on(PackFileCache::new(&test_repo.repo())).unwrap();
+        let cache = block_on(IndexCache::<TestGenerics>::new(&test_repo.git_dir())).unwrap();
         let (mut pack, offset) = block_on(find_packed_object(
             &cache,
             ObjectId::from_hex(b"7ee3a2eb0ff69340e8a1c962a5b573de1cb9b1f6").unwrap(),
@@ -456,7 +459,7 @@ a tag
         let test_repo = make_basic_repo().unwrap();
         make_similar_commits(&test_repo).unwrap();
         test_repo.run_git(["gc"]).unwrap();
-        let cache = block_on(PackFileCache::new(&test_repo.repo())).unwrap();
+        let cache = block_on(IndexCache::<TestGenerics>::new(&test_repo.git_dir())).unwrap();
         let (mut pack, offset) = block_on(find_packed_object(
             &cache,
             ObjectId::from_hex(b"9cded1c631096bb2caf71e1f2e0765bf6420d040").unwrap(),

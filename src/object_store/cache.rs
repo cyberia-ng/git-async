@@ -1,5 +1,4 @@
 use crate::{
-    Repo,
     error::GResult,
     file_system::{DirEntry, Directory},
     object_store::{
@@ -7,21 +6,18 @@ use crate::{
         lookup::PackName,
         pack::validate_packfile_version,
     },
-    repo::RepoCache,
-    sync::SharedCell,
     traits::AllGenerics,
 };
 use alloc::vec::Vec;
 
-pub struct PackFileCache<G: AllGenerics> {
+pub(crate) struct IndexCache<G: AllGenerics> {
     pub pack_dir: G::Directory,
     pub indexes: Vec<(PackName, FanoutTable, ShortOffsetTable)>,
 }
 
-impl<G: AllGenerics> PackFileCache<G> {
-    pub async fn new(repo: &Repo<G>) -> GResult<Self> {
-        let pack_dir = repo
-            .git_dir
+impl<G: AllGenerics> IndexCache<G> {
+    pub async fn new(git_dir: &G::Directory) -> GResult<Self> {
+        let pack_dir = git_dir
             .open_subdir(b"objects")
             .await?
             .open_subdir(b"pack")
@@ -49,23 +45,5 @@ impl<G: AllGenerics> PackFileCache<G> {
             pack_dir,
             indexes: fanouts,
         })
-    }
-
-    pub async fn get_or_init(
-        repo: &Repo<G>,
-    ) -> GResult<<G::SharedCell<RepoCache<G>> as SharedCell<RepoCache<G>>>::Guard<'_>> {
-        let guard = {
-            let read_guard = repo.cache.get().await?;
-            if read_guard.pack_cache.is_none() {
-                drop(read_guard);
-                let mut write_guard = repo.cache.get_mut().await?;
-                write_guard.pack_cache = Some(PackFileCache::new(repo).await?);
-                drop(write_guard);
-                repo.cache.get().await?
-            } else {
-                read_guard
-            }
-        };
-        Ok(guard)
     }
 }

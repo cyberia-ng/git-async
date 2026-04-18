@@ -6,6 +6,7 @@ use crate::{
     },
 };
 
+use futures::executor::block_on;
 use std::{
     ffi::OsStr,
     fs::OpenOptions,
@@ -102,7 +103,7 @@ impl TestRepo {
     }
 
     pub fn repo(&self) -> Repo<TestGenerics> {
-        Repo::new(self.git_dir())
+        block_on(Repo::new(self.git_dir())).unwrap()
     }
 
     pub fn commit(

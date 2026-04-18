@@ -2,17 +2,13 @@ use crate::{
     error::GResult,
     file_system::{Directory, FilesystemError, search_for_files},
     object::{Object, ObjectId},
-    object_store::{ObjectSize, ObjectType, cache::PackFileCache},
+    object_store::{ObjectSize, ObjectType, cache::IndexCache},
     reference::{Ref, RefName, read_packed_refs},
-    sync::SharedCell,
+    sync::SharedRef,
     traits::AllGenerics,
 };
 use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
-
-pub(crate) struct RepoCache<G: AllGenerics> {
-    pub(crate) pack_cache: Option<PackFileCache<G>>,
-}
 
 /// A handle to a Git repository
 ///
@@ -20,25 +16,26 @@ pub(crate) struct RepoCache<G: AllGenerics> {
 #[derive(Debug)]
 pub struct Repo<G: AllGenerics> {
     pub(crate) git_dir: G::Directory,
-    pub(crate) cache: G::SharedCell<RepoCache<G>>,
+    pub(crate) index_cache: G::SharedRef<IndexCache<G>>,
 }
 
 impl<G: AllGenerics> Clone for Repo<G> {
     fn clone(&self) -> Self {
         Self {
             git_dir: self.git_dir.clone(),
-            cache: self.cache.clone(),
+            index_cache: self.index_cache.clone(),
         }
     }
 }
 
 impl<G: AllGenerics> Repo<G> {
     /// Open the repository located at `git_dir`.
-    pub fn new(git_dir: G::Directory) -> Self {
-        Repo {
+    pub async fn new(git_dir: G::Directory) -> GResult<Self> {
+        let pack_cache = IndexCache::new(&git_dir).await?;
+        Ok(Repo {
             git_dir,
-            cache: G::SharedCell::new(RepoCache { pack_cache: None }),
-        }
+            index_cache: G::SharedRef::new(pack_cache),
+        })
     }
 
     /// Collect all the refs tracked by the repository. Includes HEAD, branches,
@@ -96,18 +93,28 @@ impl<G: AllGenerics> Repo<G> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::{
         reference::RefType,
+        sync::SharedRef,
         test::{
             directory::{TestRepoDirectory, TestRepoFile},
             helpers::make_basic_repo,
-            lock::StdLock,
             repo::TestRepo,
         },
+        traits::Detached,
     };
     use futures::executor::block_on;
+    use std::sync::Arc;
 
-    use super::*;
+    impl Repo<Detached> {
+        pub(crate) fn detached() -> Self {
+            Self {
+                git_dir: Detached::new(),
+                index_cache: Detached::new(),
+            }
+        }
+    }
 
     #[test]
     fn read_head() {
@@ -153,12 +160,18 @@ mod tests {
         assert_eq!(&refs, &expected);
     }
 
+    impl<T: 'static> SharedRef<T> for Arc<T> {
+        fn new(value: T) -> Self {
+            Arc::new(value)
+        }
+    }
+
     #[expect(dead_code)]
     struct MultithreadGenerics;
     impl AllGenerics for MultithreadGenerics {
         type File = TestRepoFile;
         type Directory = TestRepoDirectory;
-        type SharedCell<T: 'static> = StdLock<T>;
+        type SharedRef<T: 'static> = Arc<T>;
     }
     #[test]
     fn repo_is_send() {

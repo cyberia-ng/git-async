@@ -4,7 +4,7 @@ use crate::{
     object::ObjectId,
     object_store::{
         ObjectSize, ObjectType, RawObject,
-        cache::PackFileCache,
+        cache::IndexCache,
         index::{FanoutTable, ShortOffsetTable, find_object_in_pack_index},
         loose::{read_loose_object, read_loose_object_size_type},
         pack::{form_deltified_chain, reconstruct_deltified_object_from_chain},
@@ -48,8 +48,7 @@ pub(crate) async fn lookup_size_type<G: AllGenerics>(
     if opt_size_type.is_some() {
         return Ok(opt_size_type);
     }
-    let guard = PackFileCache::get_or_init(repo).await?;
-    let pack_cache = guard.pack_cache.as_ref().unwrap();
+    let pack_cache = &*repo.index_cache;
     let Some((mut pack, offset)) = find_packed_object(pack_cache, id).await? else {
         return Ok(None);
     };
@@ -67,8 +66,7 @@ pub(crate) async fn lookup<G: AllGenerics>(
     if loose_object.is_some() {
         return Ok(loose_object);
     }
-    let guard = PackFileCache::get_or_init(repo).await?;
-    let pack_cache = guard.pack_cache.as_ref().unwrap();
+    let pack_cache = &*repo.index_cache;
     let Some((mut indexed_pack, offset)) = find_packed_object(pack_cache, id).await? else {
         return Ok(None);
     };
@@ -86,7 +84,7 @@ pub(crate) async fn lookup<G: AllGenerics>(
 }
 
 pub(crate) async fn find_packed_object<G: AllGenerics>(
-    pack_cache: &PackFileCache<G>,
+    pack_cache: &IndexCache<G>,
     id: ObjectId,
 ) -> GResult<Option<(IndexedPackFile<'_, G::File>, Offset)>> {
     for (pack_meta, fanout, offsets) in &pack_cache.indexes {
