@@ -34,7 +34,7 @@ impl PackName {
 }
 
 pub(crate) struct IndexedPackFile<'f, F> {
-    pub(crate) index: F,
+    pub(crate) index: CachingPageReader<F>,
     pub(crate) fanout: &'f FanoutTable,
     pub(crate) offsets: &'f ShortOffsetTable,
     pub(crate) pack: CachingPageReader<F>,
@@ -90,10 +90,11 @@ pub(crate) async fn find_packed_object<G: AllGenerics>(
     id: ObjectId,
 ) -> GResult<Option<(IndexedPackFile<'_, G::File>, Offset)>> {
     for (pack_meta, fanout, offsets) in &pack_cache.indexes {
-        let mut idx_file = pack_cache
+        let idx_file = pack_cache
             .pack_dir
             .open_file(&pack_meta.index_filename)
             .await?;
+        let mut idx_file = CachingPageReader::new(idx_file);
         if let Some(offset) = find_object_in_pack_index(fanout, offsets, &mut idx_file, id).await? {
             let pack_file = pack_cache
                 .pack_dir
