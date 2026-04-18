@@ -16,13 +16,15 @@ use alloc::vec::Vec;
 #[derive(Debug)]
 pub struct Repo<G: AllGenerics> {
     pub(crate) git_dir: G::Directory,
-    pub(crate) index_cache: G::SharedRef<IndexCache<G>>,
+    pub(crate) pack_dir: G::Directory,
+    pub(crate) index_cache: G::SharedRef<IndexCache>,
 }
 
 impl<G: AllGenerics> Clone for Repo<G> {
     fn clone(&self) -> Self {
         Self {
             git_dir: self.git_dir.clone(),
+            pack_dir: self.pack_dir.clone(),
             index_cache: self.index_cache.clone(),
         }
     }
@@ -31,10 +33,16 @@ impl<G: AllGenerics> Clone for Repo<G> {
 impl<G: AllGenerics> Repo<G> {
     /// Open the repository located at `git_dir`.
     pub async fn new(git_dir: G::Directory) -> GResult<Self> {
-        let pack_cache = IndexCache::new(&git_dir).await?;
+        let pack_dir = git_dir
+            .open_subdir(b"objects")
+            .await?
+            .open_subdir(b"pack")
+            .await?;
+        let index_cache = IndexCache::new(&pack_dir).await?;
         Ok(Repo {
             git_dir,
-            index_cache: G::SharedRef::new(pack_cache),
+            pack_dir,
+            index_cache: G::SharedRef::new(index_cache),
         })
     }
 
@@ -111,6 +119,7 @@ mod tests {
         pub(crate) fn detached() -> Self {
             Self {
                 git_dir: Detached::new(),
+                pack_dir: Detached::new(),
                 index_cache: Detached::new(),
             }
         }

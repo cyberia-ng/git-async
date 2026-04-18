@@ -1,27 +1,20 @@
 use crate::{
     error::GResult,
-    file_system::{DirEntry, Directory},
+    file_system::{DirEntry, Directory, File},
     object_store::{
         index::{FanoutTable, ShortOffsetTable},
         lookup::PackName,
         pack::validate_packfile_version,
     },
-    traits::AllGenerics,
 };
 use alloc::vec::Vec;
 
-pub(crate) struct IndexCache<G: AllGenerics> {
-    pub pack_dir: G::Directory,
+pub(crate) struct IndexCache {
     pub indexes: Vec<(PackName, FanoutTable, ShortOffsetTable)>,
 }
 
-impl<G: AllGenerics> IndexCache<G> {
-    pub async fn new(git_dir: &G::Directory) -> GResult<Self> {
-        let pack_dir = git_dir
-            .open_subdir(b"objects")
-            .await?
-            .open_subdir(b"pack")
-            .await?;
+impl IndexCache {
+    pub async fn new<F: File, D: Directory<F>>(pack_dir: &D) -> GResult<Self> {
         let pack_ids: Vec<PackName> = pack_dir
             .list_dir()
             .await?
@@ -41,9 +34,6 @@ impl<G: AllGenerics> IndexCache<G> {
             validate_packfile_version(&mut pack_file).await?;
             fanouts.push((pack_id, fanout, offset_table));
         }
-        Ok(Self {
-            pack_dir,
-            indexes: fanouts,
-        })
+        Ok(Self { indexes: fanouts })
     }
 }

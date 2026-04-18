@@ -49,7 +49,7 @@ pub(crate) async fn lookup_size_type<G: AllGenerics>(
         return Ok(opt_size_type);
     }
     let pack_cache = &*repo.index_cache;
-    let Some((mut pack, offset)) = find_packed_object(pack_cache, id).await? else {
+    let Some((mut pack, offset)) = find_packed_object(repo, pack_cache, id).await? else {
         return Ok(None);
     };
     let (_, object_type, final_object) = form_deltified_chain(&mut pack, offset)
@@ -67,7 +67,7 @@ pub(crate) async fn lookup<G: AllGenerics>(
         return Ok(loose_object);
     }
     let pack_cache = &*repo.index_cache;
-    let Some((mut indexed_pack, offset)) = find_packed_object(pack_cache, id).await? else {
+    let Some((mut indexed_pack, offset)) = find_packed_object(repo, pack_cache, id).await? else {
         return Ok(None);
     };
     let (chain, object_type, final_object) = form_deltified_chain(&mut indexed_pack, offset)
@@ -83,21 +83,16 @@ pub(crate) async fn lookup<G: AllGenerics>(
     }))
 }
 
-pub(crate) async fn find_packed_object<G: AllGenerics>(
-    pack_cache: &IndexCache<G>,
+pub(crate) async fn find_packed_object<'p, G: AllGenerics>(
+    repo: &Repo<G>,
+    pack_cache: &'p IndexCache,
     id: ObjectId,
-) -> GResult<Option<(IndexedPackFile<'_, G::File>, Offset)>> {
+) -> GResult<Option<(IndexedPackFile<'p, G::File>, Offset)>> {
     for (pack_meta, fanout, offsets) in &pack_cache.indexes {
-        let idx_file = pack_cache
-            .pack_dir
-            .open_file(&pack_meta.index_filename)
-            .await?;
+        let idx_file = repo.pack_dir.open_file(&pack_meta.index_filename).await?;
         let mut idx_file = CachingPageReader::new(idx_file);
         if let Some(offset) = find_object_in_pack_index(fanout, offsets, &mut idx_file, id).await? {
-            let pack_file = pack_cache
-                .pack_dir
-                .open_file(&pack_meta.pack_filename)
-                .await?;
+            let pack_file = repo.pack_dir.open_file(&pack_meta.pack_filename).await?;
             return Ok(Some((
                 IndexedPackFile {
                     fanout,
