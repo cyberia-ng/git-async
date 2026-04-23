@@ -6,6 +6,7 @@ use crate::{
 use alloc::{vec, vec::Vec};
 use core::cmp::Ordering;
 
+#[derive(Clone)]
 pub(crate) struct FanoutTable {
     fanout: [u32; 256],
 }
@@ -36,6 +37,7 @@ impl FanoutTable {
     }
 }
 
+#[derive(Clone)]
 pub(crate) struct ShortOffsetTable {
     table: Vec<u8>,
 }

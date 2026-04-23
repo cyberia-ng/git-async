@@ -15,6 +15,7 @@ use crate::{
 };
 use alloc::vec::Vec;
 
+#[derive(Clone)]
 pub(crate) struct PackName {
     pub(crate) index_filename: Vec<u8>,
     pub(crate) pack_filename: Vec<u8>,
@@ -48,7 +49,7 @@ pub(crate) async fn lookup_size_type<G: AllGenerics>(
     if opt_size_type.is_some() {
         return Ok(opt_size_type);
     }
-    let pack_cache = &*repo.index_cache;
+    let pack_cache = &repo.index_cache;
     let Some((mut pack, offset)) = find_packed_object(repo, pack_cache, id).await? else {
         return Ok(None);
     };
@@ -66,7 +67,7 @@ pub(crate) async fn lookup<G: AllGenerics>(
     if loose_object.is_some() {
         return Ok(loose_object);
     }
-    let pack_cache = &*repo.index_cache;
+    let pack_cache = &repo.index_cache;
     let Some((mut indexed_pack, offset)) = find_packed_object(repo, pack_cache, id).await? else {
         return Ok(None);
     };

@@ -4,7 +4,6 @@ use crate::{
     object::{Object, ObjectId},
     object_store::{ObjectSize, ObjectType, cache::IndexCache},
     reference::{Ref, RefName, read_packed_refs},
-    sync::SharedRef,
     traits::AllGenerics,
 };
 use alloc::collections::BTreeSet;
@@ -13,11 +12,10 @@ use alloc::vec::Vec;
 /// A handle to a Git repository
 ///
 /// It is generic over the implementation of filesystem operations.
-#[derive(Debug)]
 pub struct Repo<G: AllGenerics> {
     pub(crate) git_dir: G::Directory,
     pub(crate) pack_dir: G::Directory,
-    pub(crate) index_cache: G::SharedRef<IndexCache>,
+    pub(crate) index_cache: IndexCache,
 }
 
 impl<G: AllGenerics> Clone for Repo<G> {
@@ -42,7 +40,7 @@ impl<G: AllGenerics> Repo<G> {
         Ok(Repo {
             git_dir,
             pack_dir,
-            index_cache: G::SharedRef::new(index_cache),
+            index_cache,
         })
     }
 
@@ -104,15 +102,9 @@ mod tests {
     use super::*;
     use crate::{
         reference::RefType,
-        sync::SharedRef,
-        test::{
-            directory::{TestRepoDirectory, TestRepoFile},
-            helpers::make_basic_repo,
-            repo::TestRepo,
-        },
+        test::{helpers::make_basic_repo, repo::TestRepo},
     };
     use futures::executor::block_on;
-    use std::sync::Arc;
 
     #[test]
     fn read_head() {
@@ -156,34 +148,5 @@ mod tests {
         .into_iter()
         .collect();
         assert_eq!(&refs, &expected);
-    }
-
-    impl<T: 'static> SharedRef<T> for Arc<T> {
-        fn new(value: T) -> Self {
-            Arc::new(value)
-        }
-    }
-
-    #[expect(dead_code)]
-    struct MultithreadGenerics;
-    impl AllGenerics for MultithreadGenerics {
-        type File = TestRepoFile;
-        type Directory = TestRepoDirectory;
-        type SharedRef<T: 'static> = Arc<T>;
-    }
-    #[test]
-    fn repo_is_send() {
-        fn _foo<T: Send>(_val: T) {}
-        fn _bar(repo: Repo<MultithreadGenerics>) {
-            _foo(repo);
-        }
-    }
-
-    #[test]
-    fn repo_is_sync() {
-        fn _foo<T: Sync>(_val: T) {}
-        fn _bar(repo: Repo<MultithreadGenerics>) {
-            _foo(repo);
-        }
     }
 }

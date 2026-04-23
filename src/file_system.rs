@@ -18,8 +18,6 @@ use core::{any::Any, future::Future};
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
-use crate::traits::Detached;
-
 /// Represents a directory entry
 ///
 /// Names are represented as [`Vec<u8>`] to work on platforms with non-Unicode
@@ -59,20 +57,6 @@ pub trait Directory<File>: Sized + Clone {
 
     /// Open a file (for reading)
     fn open_file(&self, name: &[u8]) -> impl Future<Output = Result<File, FilesystemError>>;
-}
-
-impl Directory<Detached> for Detached {
-    async fn open_subdir(&self, _name: &[u8]) -> Result<Self, FilesystemError> {
-        unreachable!()
-    }
-
-    async fn list_dir(&self) -> Result<Vec<DirEntry>, FilesystemError> {
-        unreachable!()
-    }
-
-    async fn open_file(&self, _name: &[u8]) -> Result<Detached, FilesystemError> {
-        unreachable!()
-    }
 }
 
 /// An offset within a file; a newtype wrapper around a [`u64`]
@@ -127,20 +111,6 @@ pub trait File: Sized {
         offset: Offset,
         dest: &mut [u8],
     ) -> impl Future<Output = Result<usize, FilesystemError>>;
-}
-
-impl File for Detached {
-    async fn read_all(&mut self) -> Result<Vec<u8>, FilesystemError> {
-        unreachable!()
-    }
-
-    async fn read_segment(
-        &mut self,
-        _offset: Offset,
-        _dest: &mut [u8],
-    ) -> Result<usize, FilesystemError> {
-        unreachable!()
-    }
 }
 
 pub(crate) type PathComponent = Vec<u8>;

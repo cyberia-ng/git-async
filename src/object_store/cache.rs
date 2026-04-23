@@ -9,6 +9,7 @@ use crate::{
 };
 use alloc::vec::Vec;
 
+#[derive(Clone)]
 pub(crate) struct IndexCache {
     pub indexes: Vec<(PackName, FanoutTable, ShortOffsetTable)>,
 }
