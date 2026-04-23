@@ -77,18 +77,18 @@ impl<G: AllGenerics> Repo<G> {
     }
 
     /// Get the repository's HEAD ref.
-    pub async fn head(&self) -> GResult<Ref<G>> {
+    pub async fn head(&self) -> GResult<Ref> {
         Ref::lookup(self, &RefName::Head).await
     }
 
     /// Take a ref name and look up its content.
-    pub async fn lookup_ref(&self, name: &RefName) -> GResult<Ref<G>> {
+    pub async fn lookup_ref(&self, name: &RefName) -> GResult<Ref> {
         Ref::lookup(self, name).await
     }
 
     /// Look up a particular object in the repository, reading the entire object
     /// into memory.
-    pub async fn lookup_object(&self, id: ObjectId) -> GResult<Object<G>> {
+    pub async fn lookup_object(&self, id: ObjectId) -> GResult<Object> {
         Object::lookup(self, id).await
     }
 
@@ -110,20 +110,9 @@ mod tests {
             helpers::make_basic_repo,
             repo::TestRepo,
         },
-        traits::Detached,
     };
     use futures::executor::block_on;
     use std::sync::Arc;
-
-    impl Repo<Detached> {
-        pub(crate) fn detached() -> Self {
-            Self {
-                git_dir: Detached::new(),
-                pack_dir: Detached::new(),
-                index_cache: Detached::new(),
-            }
-        }
-    }
 
     #[test]
     fn read_head() {

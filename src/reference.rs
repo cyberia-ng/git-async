@@ -61,28 +61,15 @@ impl RefName {
     }
 }
 
-#[derive(Accessors)]
+#[derive(Accessors, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "serde", serde(bound = ""))]
-pub struct Ref<G: AllGenerics> {
+pub struct Ref {
     #[access(get)]
     name: RefName,
 
     #[access(get)]
     ref_type: RefType,
-
-    #[cfg_attr(feature = "serde", serde(skip))]
-    repo: Option<Repo<G>>,
-}
-
-impl<G: AllGenerics> Clone for Ref<G> {
-    fn clone(&self) -> Self {
-        Self {
-            name: self.name.clone(),
-            ref_type: self.ref_type.clone(),
-            repo: self.repo.clone(),
-        }
-    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -93,8 +80,8 @@ pub enum RefType {
     Symbolic(RefName),
 }
 
-impl<G: AllGenerics> Ref<G> {
-    pub(crate) async fn lookup(repo: &Repo<G>, name: &RefName) -> GResult<Ref<G>> {
+impl Ref {
+    pub(crate) async fn lookup<G: AllGenerics>(repo: &Repo<G>, name: &RefName) -> GResult<Ref> {
         let ref_type = {
             if let Some(reference) = lookup_loose_ref(repo, name).await? {
                 reference
@@ -114,21 +101,13 @@ impl<G: AllGenerics> Ref<G> {
         Ok(Self {
             name: name.clone(),
             ref_type,
-            repo: Some(repo.clone()),
         })
     }
 
-    fn repo(&self) -> GResult<&Repo<G>> {
-        match &self.repo {
-            Some(r) => Ok(r),
-            None => Err(Error::NotAnnotatedWithRepo),
-        }
-    }
-
-    pub async fn resolve_object_id(&self) -> GResult<ObjectId> {
-        let mut target: Ref<G> = self.clone();
+    pub async fn resolve_object_id<G: AllGenerics>(&self, repo: &Repo<G>) -> GResult<ObjectId> {
+        let mut target: Ref = self.clone();
         while let RefType::Symbolic(name) = target.ref_type {
-            target = self.repo()?.lookup_ref(&name).await?;
+            target = repo.lookup_ref(&name).await?;
         }
         match target.ref_type {
             RefType::Symbolic(_) => unreachable!(),
@@ -136,16 +115,16 @@ impl<G: AllGenerics> Ref<G> {
         }
     }
 
-    pub async fn peel_to_commit(&self) -> GResult<Option<Commit<G>>> {
-        let oid = self.resolve_object_id().await?;
-        let object = self.repo()?.lookup_object(oid).await?;
-        object.peel_to_commit().await
+    pub async fn peel_to_commit<G: AllGenerics>(&self, repo: &Repo<G>) -> GResult<Option<Commit>> {
+        let oid = self.resolve_object_id(repo).await?;
+        let object = repo.lookup_object(oid).await?;
+        object.peel_to_commit(repo).await
     }
 
-    pub async fn peel_to_tree(&self) -> GResult<Option<Tree<G>>> {
-        let oid = self.resolve_object_id().await?;
-        let object = self.repo()?.lookup_object(oid).await?;
-        object.peel_to_tree().await
+    pub async fn peel_to_tree<G: AllGenerics>(&self, repo: &Repo<G>) -> GResult<Option<Tree>> {
+        let oid = self.resolve_object_id(repo).await?;
+        let object = repo.lookup_object(oid).await?;
+        object.peel_to_tree(repo).await
     }
 }
 
@@ -254,7 +233,7 @@ mod test {
         let repo = test_repo.repo();
         let ref_name = RefName::Ref(b"heads/main".to_vec());
         let reference = block_on(repo.lookup_ref(&ref_name)).unwrap();
-        let oid = block_on(reference.resolve_object_id()).unwrap();
+        let oid = block_on(reference.resolve_object_id(&repo)).unwrap();
         let object = block_on(repo.lookup_object(oid)).unwrap();
         assert!(matches!(object, Object::Commit(_)));
     }
@@ -265,7 +244,7 @@ mod test {
         let repo = test_repo.repo();
         let ref_name = RefName::Ref(b"tags/a-fat-tag".to_vec());
         let reference = block_on(repo.lookup_ref(&ref_name)).unwrap();
-        let oid = block_on(reference.resolve_object_id()).unwrap();
+        let oid = block_on(reference.resolve_object_id(&repo)).unwrap();
         let object = block_on(repo.lookup_object(oid)).unwrap();
         assert!(matches!(object, Object::Tag(_)));
     }

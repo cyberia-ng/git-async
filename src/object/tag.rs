@@ -1,9 +1,9 @@
 use crate::{
-    error::{Error, GResult},
+    error::GResult,
     object::{Object, ObjectHeader, ObjectId, parse_author_committer_tagger, parse_object_headers},
     parsing::{ParseError, ParseResult},
     repo::Repo,
-    traits::{AllGenerics, Detached},
+    traits::AllGenerics,
 };
 use accessory::Accessors;
 use alloc::vec::Vec;
@@ -21,10 +21,10 @@ pub enum TagType {
     Tag,
 }
 
-#[derive(Accessors)]
+#[derive(Accessors, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "serde", serde(bound = ""))]
-pub struct Tag<G: AllGenerics> {
+pub struct Tag {
     #[access(get(cp))]
     id: ObjectId,
 
@@ -55,77 +55,33 @@ pub struct Tag<G: AllGenerics> {
 
     #[access(get(ty(&[ObjectHeader])))]
     additional_headers: Vec<ObjectHeader>,
-
-    #[cfg_attr(feature = "serde", serde(skip))]
-    repo: Option<Repo<G>>,
 }
 
-impl<G: AllGenerics> PartialEq for Tag<G> {
+impl PartialEq for Tag {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id
     }
 }
-impl<G: AllGenerics> Eq for Tag<G> {}
-impl<G: AllGenerics> PartialOrd for Tag<G> {
+impl Eq for Tag {}
+impl PartialOrd for Tag {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
-impl<G: AllGenerics> Ord for Tag<G> {
+impl Ord for Tag {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         self.id.cmp(&other.id)
     }
 }
-impl<G: AllGenerics> Clone for Tag<G> {
-    fn clone(&self) -> Self {
-        Self {
-            id: self.id,
-            target: self.target,
-            tag_type: self.tag_type,
-            name: self.name.clone(),
-            tagger_name: self.tagger_name.clone(),
-            tagger_email: self.tagger_email.clone(),
-            tag_date: self.tag_date,
-            message: self.message.clone(),
-            additional_headers: self.additional_headers.clone(),
-            repo: self.repo.clone(),
-        }
+
+impl Tag {
+    pub async fn lookup_target<G: AllGenerics>(&self, repo: &Repo<G>) -> GResult<Object> {
+        repo.lookup_object(self.target).await
     }
 }
 
-impl<G: AllGenerics> Tag<G> {
-    pub fn detach(self) -> Tag<Detached> {
-        Tag {
-            id: self.id,
-            target: self.target,
-            tag_type: self.tag_type,
-            name: self.name,
-            tagger_name: self.tagger_name,
-            tagger_email: self.tagger_email,
-            tag_date: self.tag_date,
-            message: self.message,
-            additional_headers: self.additional_headers,
-            repo: None,
-        }
-    }
-
-    pub async fn lookup_target(&self) -> GResult<Object<G>> {
-        self.repo()?.lookup_object(self.target).await
-    }
-
-    pub(crate) fn repo(&self) -> GResult<&Repo<G>> {
-        match &self.repo {
-            Some(r) => Ok(r),
-            None => Err(Error::NotAnnotatedWithRepo),
-        }
-    }
-}
-
-impl<G: AllGenerics> Tag<G> {
-    pub(crate) fn parser<'a>(
-        id: ObjectId,
-        repo: &Repo<G>,
-    ) -> impl Fn(&'a [u8]) -> ParseResult<&'a [u8], Self> {
+impl Tag {
+    pub(crate) fn parser<'a>(id: ObjectId) -> impl Fn(&'a [u8]) -> ParseResult<&'a [u8], Self> {
         move |input: &[u8]| {
             let (message, raw_headers) = parse_object_headers.parse(input)?;
             let mut object: Option<ObjectId> = None;
@@ -163,7 +119,7 @@ impl<G: AllGenerics> Tag<G> {
                     }
                 }
             }
-            let f = move || -> Option<Tag<G>> {
+            let f = move || -> Option<Tag> {
                 Some(Tag {
                     id,
                     target: object?,
@@ -174,7 +130,6 @@ impl<G: AllGenerics> Tag<G> {
                     tag_date,
                     message: message.to_vec(),
                     additional_headers,
-                    repo: Some(repo.clone()),
                 })
             };
             match f() {
@@ -192,13 +147,8 @@ mod tests {
 
     const ZERO_OID: ObjectId = ObjectId::new([0; 20]);
 
-    fn dummy_repo() -> Repo<Detached> {
-        Repo::detached()
-    }
-
     #[test]
     fn parse_commit_tag() {
-        let repo = dummy_repo();
         let data = b"object eedeffb6da16ddc3fb61b2255a8259cacc045691
 type commit
 tag annotated-tag
@@ -206,7 +156,7 @@ tagger a-user <an-email-address> 1774822895 +0100
 
 a message
 ";
-        let (_, tag) = Tag::parser(ZERO_OID, &repo).parse(data).unwrap();
+        let (_, tag) = Tag::parser(ZERO_OID).parse(data).unwrap();
         assert_eq!(
             tag.target,
             ObjectId::new(hex!("eedeffb6da16ddc3fb61b2255a8259cacc045691"),)
@@ -227,7 +177,6 @@ a message
 
     #[test]
     fn parse_blob_tag() {
-        let repo = dummy_repo();
         let data = b"object e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
 type blob
 tag blob-tag
@@ -235,13 +184,12 @@ tagger a-user <an-email-address> 1774826002 +0100
 
 a blob
 ";
-        let (_, tag) = Tag::parser(ZERO_OID, &repo).parse(data).unwrap();
+        let (_, tag) = Tag::parser(ZERO_OID).parse(data).unwrap();
         assert_eq!(tag.tag_type, TagType::Blob);
     }
 
     #[test]
     fn parse_tree_tag() {
-        let repo = dummy_repo();
         let data = b"object 3a4df67dd7fd7cb3ca82d9896dbdd28053d39bdb
 type tree
 tag tree-tag
@@ -249,13 +197,12 @@ tagger a-user <an-email-address> 1774826187 +0100
 
 a tree
 ";
-        let (_, tag) = Tag::parser(ZERO_OID, &repo).parse(data).unwrap();
+        let (_, tag) = Tag::parser(ZERO_OID).parse(data).unwrap();
         assert_eq!(tag.tag_type, TagType::Tree);
     }
 
     #[test]
     fn parse_nested_tag() {
-        let repo = dummy_repo();
         let data = b"object 1c8bf8368bc9b1fd14227c6c1a0b0f30a1812e70
 type tag
 tag tag-tag
@@ -263,7 +210,7 @@ tagger a-user <an-email-address> 1774826312 +0100
 
 a tag
 ";
-        let (_, tag) = Tag::parser(ZERO_OID, &repo).parse(data).unwrap();
+        let (_, tag) = Tag::parser(ZERO_OID).parse(data).unwrap();
         assert_eq!(tag.tag_type, TagType::Tag);
     }
 }

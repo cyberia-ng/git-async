@@ -45,24 +45,15 @@ impl Blob {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        Repo,
-        object::{Object, ObjectType},
-        traits::Detached,
-    };
+    use crate::object::{Object, ObjectType};
     use nom::Parser;
 
     const ZERO_OID: ObjectId = ObjectId::new([0; 20]);
 
-    fn dummy_repo() -> Repo<Detached> {
-        Repo::detached()
-    }
-
     #[test]
     fn parse_empty_blob() {
-        let repo = dummy_repo();
         let input = b"";
-        let (_, object) = Object::parser(ZERO_OID, ObjectType::Blob, &repo)
+        let (_, object) = Object::parser(ZERO_OID, ObjectType::Blob)
             .parse(input)
             .unwrap();
         let Object::Blob(blob) = object else { panic!() };
@@ -71,9 +62,8 @@ mod tests {
 
     #[test]
     fn parse_contentful_blob() {
-        let repo = dummy_repo();
         let input = b"hello world";
-        let (_, object) = Object::parser(ZERO_OID, ObjectType::Blob, &repo)
+        let (_, object) = Object::parser(ZERO_OID, ObjectType::Blob)
             .parse(input)
             .unwrap();
         let Object::Blob(blob) = object else { panic!() };

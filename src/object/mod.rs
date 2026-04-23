@@ -6,7 +6,7 @@ use crate::{
     },
     parsing::ParseResult,
     repo::Repo,
-    traits::{AllGenerics, Detached},
+    traits::AllGenerics,
 };
 use accessory::Accessors;
 use alloc::{format, vec::Vec};
@@ -80,28 +80,18 @@ impl ObjectId {
     }
 }
 
+#[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "serde", serde(tag = "type"))]
 #[cfg_attr(feature = "serde", serde(bound = ""))]
-pub enum Object<G: AllGenerics> {
-    Commit(Commit<G>),
-    Tree(Tree<G>),
-    Tag(Tag<G>),
+pub enum Object {
+    Commit(Commit),
+    Tree(Tree),
+    Tag(Tag),
     Blob(Blob),
 }
 
-impl<G: AllGenerics> Clone for Object<G> {
-    fn clone(&self) -> Self {
-        match self {
-            Self::Commit(c) => Self::Commit(c.clone()),
-            Self::Tree(t) => Self::Tree(t.clone()),
-            Self::Tag(t) => Self::Tag(t.clone()),
-            Self::Blob(b) => Self::Blob(b.clone()),
-        }
-    }
-}
-
-impl<G: AllGenerics> Object<G> {
+impl Object {
     pub fn id(&self) -> ObjectId {
         use Object::*;
         match self {
@@ -109,16 +99,6 @@ impl<G: AllGenerics> Object<G> {
             Tree(t) => t.id(),
             Tag(t) => t.id(),
             Blob(b) => b.id(),
-        }
-    }
-
-    pub fn detach(self) -> Object<Detached> {
-        use Object::*;
-        match self {
-            Commit(commit) => Commit(commit.detach()),
-            Tree(tree) => Tree(tree.detach()),
-            Tag(tag) => Tag(tag.detach()),
-            Blob(blob) => Blob(blob),
         }
     }
 
@@ -132,7 +112,7 @@ impl<G: AllGenerics> Object<G> {
         }
     }
 
-    pub fn commit(self) -> Result<Commit<G>, UnexpectedObjectType> {
+    pub fn commit(self) -> Result<Commit, UnexpectedObjectType> {
         use Object::*;
         match self {
             Commit(c) => Ok(c),
@@ -144,7 +124,7 @@ impl<G: AllGenerics> Object<G> {
         }
     }
 
-    pub fn tag(self) -> Result<Tag<G>, UnexpectedObjectType> {
+    pub fn tag(self) -> Result<Tag, UnexpectedObjectType> {
         use Object::*;
         match self {
             Tag(t) => Ok(t),
@@ -156,7 +136,7 @@ impl<G: AllGenerics> Object<G> {
         }
     }
 
-    pub fn tree(self) -> Result<Tree<G>, UnexpectedObjectType> {
+    pub fn tree(self) -> Result<Tree, UnexpectedObjectType> {
         use Object::*;
         match self {
             Tree(t) => Ok(t),
@@ -180,14 +160,14 @@ impl<G: AllGenerics> Object<G> {
         }
     }
 
-    pub async fn peel_to_commit(&self) -> GResult<Option<Commit<G>>> {
+    pub async fn peel_to_commit<G: AllGenerics>(&self, repo: &Repo<G>) -> GResult<Option<Commit>> {
         use Object::*;
-        let mut obj: Object<G> = self.clone();
+        let mut obj: Object = self.clone();
         loop {
             match obj {
                 Commit(c) => return Ok(Some(c)),
                 Tag(t) => {
-                    let target = t.repo()?.lookup_object(t.target()).await?;
+                    let target = repo.lookup_object(t.target()).await?;
                     obj = target;
                 }
                 _ => return Ok(None),
@@ -195,18 +175,18 @@ impl<G: AllGenerics> Object<G> {
         }
     }
 
-    pub async fn peel_to_tree(&self) -> GResult<Option<Tree<G>>> {
+    pub async fn peel_to_tree<G: AllGenerics>(&self, repo: &Repo<G>) -> GResult<Option<Tree>> {
         use Object::*;
-        let mut obj: Object<G> = self.clone();
+        let mut obj: Object = self.clone();
         loop {
             match obj {
                 Tree(t) => return Ok(Some(t)),
                 Commit(c) => {
-                    let tree = c.repo()?.lookup_object(c.tree()).await?;
+                    let tree = repo.lookup_object(c.tree()).await?;
                     obj = tree;
                 }
                 Tag(t) => {
-                    let target = t.repo()?.lookup_object(t.target()).await?;
+                    let target = repo.lookup_object(t.target()).await?;
                     obj = target;
                 }
                 Blob(_) => return Ok(None),
@@ -214,7 +194,7 @@ impl<G: AllGenerics> Object<G> {
         }
     }
 
-    pub(crate) async fn lookup(repo: &Repo<G>, id: ObjectId) -> GResult<Self> {
+    pub(crate) async fn lookup<G: AllGenerics>(repo: &Repo<G>, id: ObjectId) -> GResult<Self> {
         let RawObject {
             object_type,
             body,
@@ -223,7 +203,7 @@ impl<G: AllGenerics> Object<G> {
             .await?
             .ok_or_else(|| Error::MissingObject(id))?;
 
-        let (_, object) = Self::parser(id, object_type, repo)
+        let (_, object) = Self::parser(id, object_type)
             .parse(body.as_ref())
             .map_err(|e| match e {
                 nom::Err::Incomplete(_) => unreachable!(),
@@ -233,7 +213,7 @@ impl<G: AllGenerics> Object<G> {
         Ok(object)
     }
 
-    pub(crate) async fn lookup_size_type(
+    pub(crate) async fn lookup_size_type<G: AllGenerics>(
         repo: &Repo<G>,
         id: ObjectId,
     ) -> GResult<(ObjectSize, ObjectType)> {
@@ -245,17 +225,14 @@ impl<G: AllGenerics> Object<G> {
     pub(crate) fn parser<'a>(
         id: ObjectId,
         object_type: ObjectType,
-        repo: &Repo<G>,
     ) -> impl Fn(&'a [u8]) -> ParseResult<&'a [u8], Self> {
         move |body: &[u8]| {
             let (_, object) = match object_type {
-                ObjectType::Commit => all_consuming(Commit::parser(id, repo))
+                ObjectType::Commit => all_consuming(Commit::parser(id))
                     .map(Self::Commit)
                     .parse(body)?,
-                ObjectType::Tag => all_consuming(Tag::parser(id, repo))
-                    .map(Self::Tag)
-                    .parse(body)?,
-                ObjectType::Tree => all_consuming(Tree::parser(id, repo))
+                ObjectType::Tag => all_consuming(Tag::parser(id)).map(Self::Tag).parse(body)?,
+                ObjectType::Tree => all_consuming(Tree::parser(id))
                     .map(Self::Tree)
                     .parse(body)?,
                 ObjectType::Blob => (&[][..], Self::Blob(Blob::new(id, body.to_vec()))),
@@ -353,7 +330,7 @@ mod tests {
         test_repo.run_git(["gc"]).unwrap();
         let repo = test_repo.repo();
         let head = block_on(repo.head()).unwrap();
-        let oid = block_on(head.resolve_object_id()).unwrap();
+        let oid = block_on(head.resolve_object_id(&repo)).unwrap();
         let Object::Commit(commit) = block_on(repo.lookup_object(oid)).unwrap() else {
             panic!()
         };

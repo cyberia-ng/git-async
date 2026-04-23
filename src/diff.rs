@@ -130,8 +130,7 @@ impl<G: AllGenerics> TreeDiff<G> {
             .ok_or_else(|| Error::NotAnnotatedWithRepo)
     }
 
-    pub async fn new(left: &Tree<G>, right: &Tree<G>) -> GResult<Self> {
-        let repo = left.repo()?;
+    pub async fn new(repo: &Repo<G>, left: &Tree, right: &Tree) -> GResult<Self> {
         if left.id() == right.id() {
             return Ok(Self {
                 entries: Vec::new(),
@@ -140,7 +139,7 @@ impl<G: AllGenerics> TreeDiff<G> {
         }
         let mut out: Vec<DiffEntry<(ObjectId, ObjectId)>> = Vec::new();
         #[allow(clippy::type_complexity)]
-        let mut stack: Vec<(Option<Path>, Option<Tree<G>>, Option<Tree<G>>)> = Vec::new();
+        let mut stack: Vec<(Option<Path>, Option<Tree>, Option<Tree>)> = Vec::new();
         stack.push((None, Some(left.clone()), Some(right.clone())));
 
         while let Some((parent_path, left, right)) = stack.pop() {
@@ -186,9 +185,9 @@ impl<G: AllGenerics> TreeDiff<G> {
                 (None, None) => unreachable!(),
             };
 
-            let mut left_only: Vec<&TreeEntry<G>> = Vec::new();
-            let mut right_only: Vec<&TreeEntry<G>> = Vec::new();
-            let mut both: Vec<(&TreeEntry<G>, &TreeEntry<G>)> = Vec::new();
+            let mut left_only: Vec<&TreeEntry> = Vec::new();
+            let mut right_only: Vec<&TreeEntry> = Vec::new();
+            let mut both: Vec<(&TreeEntry, &TreeEntry)> = Vec::new();
             for left_entry in left.entries() {
                 let right_entry = right
                     .entries()
@@ -293,10 +292,10 @@ impl<G: AllGenerics> TreeDiff<G> {
     }
 }
 
-async fn tree<G: AllGenerics>(repo: &Repo<G>, id: ObjectId) -> GResult<Tree<G>> {
+async fn tree<G: AllGenerics>(repo: &Repo<G>, id: ObjectId) -> GResult<Tree> {
     repo.lookup_object(id)
         .await?
-        .peel_to_tree()
+        .peel_to_tree(repo)
         .await?
         .ok_or_else(|| Error::MalformedObject(id))
 }
@@ -389,9 +388,9 @@ mod tests {
 
     use super::*;
 
-    fn head_tree(repo: &Repo<TestGenerics>) -> Tree<TestGenerics> {
+    fn head_tree(repo: &Repo<TestGenerics>) -> Tree {
         let head = block_on(repo.lookup_ref(&RefName::Head)).unwrap();
-        block_on(head.peel_to_tree()).unwrap().unwrap()
+        block_on(head.peel_to_tree(repo)).unwrap().unwrap()
     }
 
     #[test]
@@ -400,7 +399,7 @@ mod tests {
         let repo = test_repo.repo();
         let tree = head_tree(&repo);
         assert!(
-            block_on(TreeDiff::new(&tree, &tree))
+            block_on(TreeDiff::new(&repo, &tree, &tree))
                 .unwrap()
                 .entries()
                 .is_empty()
@@ -426,7 +425,7 @@ mod tests {
             .commit("a commit", "a user", "an-email", "2000-01-01T00:00:00Z")
             .unwrap();
         let after = head_tree(&repo);
-        let the_diff = block_on(TreeDiff::new(&before, &after))
+        let the_diff = block_on(TreeDiff::new(&repo, &before, &after))
             .unwrap()
             .entries()
             .iter()
@@ -456,7 +455,7 @@ mod tests {
             .into_iter()
             .collect()
         );
-        let the_diff = block_on(TreeDiff::new(&after, &before))
+        let the_diff = block_on(TreeDiff::new(&repo, &after, &before))
             .unwrap()
             .entries()
             .iter()
@@ -506,7 +505,7 @@ mod tests {
             .commit("a commit", "a user", "an-email", "2000-01-01T00:00:00Z")
             .unwrap();
         let after = head_tree(&repo);
-        let the_diff = block_on(TreeDiff::new(&before, &after))
+        let the_diff = block_on(TreeDiff::new(&repo, &before, &after))
             .unwrap()
             .entries()
             .iter()
@@ -526,7 +525,7 @@ mod tests {
             .into_iter()
             .collect()
         );
-        let the_diff = block_on(TreeDiff::new(&after, &before))
+        let the_diff = block_on(TreeDiff::new(&repo, &after, &before))
             .unwrap()
             .entries()
             .iter()
@@ -568,7 +567,7 @@ mod tests {
             .commit("a commit", "a user", "an-email", "2000-01-01T00:00:00Z")
             .unwrap();
         let after = head_tree(&repo);
-        let the_diff = block_on(TreeDiff::new(&before, &after))
+        let the_diff = block_on(TreeDiff::new(&repo, &before, &after))
             .unwrap()
             .entries()
             .iter()
@@ -605,7 +604,7 @@ mod tests {
             .into_iter()
             .collect()
         );
-        let the_diff = block_on(TreeDiff::new(&after, &before))
+        let the_diff = block_on(TreeDiff::new(&repo, &after, &before))
             .unwrap()
             .entries()
             .iter()
