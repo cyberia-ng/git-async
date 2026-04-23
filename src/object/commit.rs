@@ -1,24 +1,27 @@
 use crate::{
     error::GResult,
-    object::{ObjectHeader, ObjectId, Tree, parse_author_committer_tagger, parse_object_headers},
-    parsing::{ParseError, ParseResult},
+    object::{
+        ObjectId, Tree,
+        header::{ObjectHeaderIter, RangeObjectHeader},
+        parse_author_committer_tagger, range_get,
+    },
+    parsing::ParseError,
     repo::Repo,
+    subslice_range::SubsliceRange,
     traits::AllGenerics,
 };
 use accessory::Accessors;
 use alloc::vec::Vec;
 use chrono::{DateTime, FixedOffset};
+use core::ops::Range;
 use nom::{Parser, combinator::all_consuming};
 
-#[cfg(feature = "serde")]
-use serde::{Deserialize, Serialize};
-
 #[derive(Accessors, Clone)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound = ""))]
 pub struct Commit {
     #[access(get(cp))]
     id: ObjectId,
+
+    body: Vec<u8>,
 
     #[access(get(cp))]
     tree: ObjectId,
@@ -26,34 +29,19 @@ pub struct Commit {
     #[access(get(ty(&[ObjectId])))]
     parents: Vec<ObjectId>,
 
-    #[access(get(ty(&[u8])))]
-    #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
-    author_name: Vec<u8>,
-
-    #[access(get(ty(&[u8])))]
-    #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
-    author_email: Vec<u8>,
+    author_name: Range<usize>,
+    author_email: Range<usize>,
+    committer_name: Range<usize>,
+    committer_email: Range<usize>,
+    message: Range<usize>,
 
     #[access(get(cp))]
     author_date: DateTime<FixedOffset>,
 
-    #[access(get(ty(&[u8])))]
-    #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
-    committer_name: Vec<u8>,
-
-    #[access(get(ty(&[u8])))]
-    #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
-    committer_email: Vec<u8>,
-
     #[access(get(cp))]
     commit_date: DateTime<FixedOffset>,
 
-    #[access(get(ty(&[u8])))]
-    #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
-    message: Vec<u8>,
-
-    #[access(get(ty(&[ObjectHeader])))]
-    additional_headers: Vec<ObjectHeader>,
+    additional_headers: Vec<RangeObjectHeader>,
 }
 
 impl PartialEq for Commit {
@@ -85,70 +73,81 @@ impl Commit {
         }
         Ok(out)
     }
-}
 
-impl Commit {
-    pub(crate) fn parser<'a>(id: ObjectId) -> impl Fn(&'a [u8]) -> ParseResult<&'a [u8], Self> {
-        move |input: &[u8]| {
-            let (message, raw_headers) = parse_object_headers.parse(input)?;
-            let mut tree_id: Option<ObjectId> = None;
-            let mut parents: Vec<ObjectId> = Vec::new();
-            let mut author_name: Option<Vec<u8>> = None;
-            let mut author_email: Option<Vec<u8>> = None;
-            let mut author_date: Option<DateTime<FixedOffset>> = None;
-            let mut committer_name: Option<Vec<u8>> = None;
-            let mut committer_email: Option<Vec<u8>> = None;
-            let mut commit_date: Option<DateTime<FixedOffset>> = None;
-            let mut additional_headers: Vec<ObjectHeader> = Vec::new();
-            for ObjectHeader { name, value } in raw_headers {
-                match name.as_slice() {
-                    b"tree" => {
-                        let (_, object_id) = all_consuming(ObjectId::parse).parse(&value)?;
-                        tree_id = Some(object_id);
-                    }
-                    b"parent" => {
-                        let (_, object_id) = all_consuming(ObjectId::parse).parse(&value)?;
-                        parents.push(object_id);
-                    }
-                    b"author" => {
-                        let (_, (name, email, date)) =
-                            all_consuming(parse_author_committer_tagger).parse(&value)?;
-                        author_name = Some(name.to_vec());
-                        author_email = Some(email.to_vec());
-                        author_date = Some(date);
-                    }
-                    b"committer" => {
-                        let (_, (name, email, date)) =
-                            all_consuming(parse_author_committer_tagger).parse(&value)?;
-                        committer_name = Some(name.to_vec());
-                        committer_email = Some(email.to_vec());
-                        commit_date = Some(date);
-                    }
-                    _ => {
-                        additional_headers.push(ObjectHeader { name, value });
-                    }
+    pub fn body(&self) -> &[u8] {
+        &self.body
+    }
+
+    range_get!(author_name, body);
+    range_get!(author_email, body);
+    range_get!(committer_name, body);
+    range_get!(committer_email, body);
+    range_get!(message, body);
+
+    pub fn additional_headers(&self) -> ObjectHeaderIter<'_> {
+        ObjectHeaderIter::new(&self.body, &self.additional_headers)
+    }
+
+    pub(crate) fn parse(id: ObjectId, body: Vec<u8>) -> Result<Self, ParseError> {
+        fn f<T>(val: Option<T>) -> Result<T, ParseError> {
+            val.ok_or(ParseError::MissingFields)
+        }
+        let (message, headers) = RangeObjectHeader::parser(&body)?;
+        let mut tree: Option<ObjectId> = None;
+        let mut parents: Vec<ObjectId> = Vec::new();
+        let mut author_name: Option<&[u8]> = None;
+        let mut author_email: Option<&[u8]> = None;
+        let mut author_date: Option<DateTime<FixedOffset>> = None;
+        let mut committer_name: Option<&[u8]> = None;
+        let mut committer_email: Option<&[u8]> = None;
+        let mut commit_date: Option<DateTime<FixedOffset>> = None;
+        let mut additional_headers: Vec<RangeObjectHeader> = Vec::new();
+        for (range_header, header) in headers
+            .iter()
+            .zip(ObjectHeaderIter::new(&body, headers.as_slice()))
+        {
+            match header.name() {
+                b"tree" => {
+                    let (_, object_id) = all_consuming(ObjectId::parse).parse(header.value())?;
+                    tree = Some(object_id);
+                }
+                b"parent" => {
+                    let (_, object_id) = all_consuming(ObjectId::parse).parse(header.value())?;
+                    parents.push(object_id);
+                }
+                b"author" => {
+                    let (_, (name, email, date)) =
+                        all_consuming(parse_author_committer_tagger).parse(header.value())?;
+                    author_name = Some(name);
+                    author_email = Some(email);
+                    author_date = Some(date);
+                }
+                b"committer" => {
+                    let (_, (name, email, date)) =
+                        all_consuming(parse_author_committer_tagger).parse(header.value())?;
+                    committer_name = Some(name);
+                    committer_email = Some(email);
+                    commit_date = Some(date);
+                }
+                _ => {
+                    additional_headers.push(range_header.clone());
                 }
             }
-            let f = move || -> Option<Commit> {
-                Some(Commit {
-                    id,
-                    author_name: author_name?,
-                    author_email: author_email?,
-                    author_date: author_date?,
-                    committer_name: committer_name?,
-                    committer_email: committer_email?,
-                    commit_date: commit_date?,
-                    tree: tree_id?,
-                    parents,
-                    message: message.to_vec(),
-                    additional_headers,
-                })
-            };
-            match f() {
-                None => Err(nom::Err::Failure(ParseError::MissingFields)),
-                Some(commit) => Ok((&[][..], commit)),
-            }
         }
+        Ok(Self {
+            id,
+            message: body.subslice_range_stable(message).unwrap(),
+            tree: f(tree)?,
+            parents,
+            author_name: body.subslice_range_stable(f(author_name)?).unwrap(),
+            author_email: body.subslice_range_stable(f(author_email)?).unwrap(),
+            author_date: f(author_date)?,
+            committer_name: body.subslice_range_stable(f(committer_name)?).unwrap(),
+            committer_email: body.subslice_range_stable(f(committer_email)?).unwrap(),
+            commit_date: f(commit_date)?,
+            additional_headers,
+            body,
+        })
     }
 }
 
@@ -167,16 +166,15 @@ committer another-user <another-email-address> 1774735019 -0800
 
 a commit
 ";
-        let (rest, commit) = Commit::parser(ZERO_OID).parse(data).unwrap();
-        assert!(rest.is_empty());
+        let commit = Commit::parse(ZERO_OID, data.to_vec()).unwrap();
         assert!(commit.parents.is_empty());
         assert_eq!(
             commit.tree,
             ObjectId::new(hex!("3a4df67dd7fd7cb3ca82d9896dbdd28053d39bdb"),)
         );
-        assert_eq!(str::from_utf8(&commit.author_name).unwrap(), "a-user");
+        assert_eq!(str::from_utf8(commit.author_name()).unwrap(), "a-user");
         assert_eq!(
-            str::from_utf8(&commit.author_email).unwrap(),
+            str::from_utf8(commit.author_email()).unwrap(),
             "an-email-address"
         );
         assert_eq!(
@@ -184,18 +182,18 @@ a commit
             DateTime::parse_from_rfc3339("2026-03-29T03:26:58+05:30").unwrap()
         );
         assert_eq!(
-            str::from_utf8(&commit.committer_name).unwrap(),
+            str::from_utf8(commit.committer_name()).unwrap(),
             "another-user"
         );
         assert_eq!(
-            str::from_utf8(&commit.committer_email).unwrap(),
+            str::from_utf8(commit.committer_email()).unwrap(),
             "another-email-address"
         );
         assert_eq!(
             commit.commit_date,
             DateTime::parse_from_rfc3339("2026-03-28T13:56:59-08:00").unwrap()
         );
-        assert_eq!(str::from_utf8(&commit.message).unwrap(), "a commit\n");
+        assert_eq!(str::from_utf8(commit.message()).unwrap(), "a commit\n");
     }
 
     #[test]
@@ -207,7 +205,7 @@ committer a-user <an-email-address> 1774739676 +0000
 
 another commit
 ";
-        let (_, commit) = Commit::parser(ZERO_OID).parse(data).unwrap();
+        let commit = Commit::parse(ZERO_OID, data.to_vec()).unwrap();
         assert_eq!(
             &commit.parents,
             &[ObjectId::new(hex!(
@@ -226,7 +224,7 @@ committer a-user <an-email-address> 1774740069 +0000
 
 Merge branch 'branch'
 ";
-        let (_, commit) = Commit::parser(ZERO_OID).parse(data).unwrap();
+        let commit = Commit::parse(ZERO_OID, data.to_vec()).unwrap();
         assert_eq!(commit.parents.len(), 2);
     }
 
@@ -242,20 +240,19 @@ some-other-header a long line-wrapped
 
 the commit message
 ";
-        let (_, commit) = Commit::parser(ZERO_OID).parse(data).unwrap();
-        assert_eq!(commit.additional_headers.len(), 2);
-        assert_eq!(
-            commit.additional_headers,
-            [
-                ObjectHeader {
-                    name: b"some-header".to_vec(),
-                    value: b"a value".to_vec()
-                },
-                ObjectHeader {
-                    name: b"some-other-header".to_vec(),
-                    value: b"a long line-wrapped value".to_vec()
-                },
-            ]
-        );
+        let commit = Commit::parse(ZERO_OID, data.to_vec()).unwrap();
+        let expected = [
+            (b"some-header".as_slice(), b"a value".as_slice()),
+            (
+                b"some-other-header".as_slice(),
+                b"a long line-wrapped\n  value".as_slice(),
+            ),
+        ];
+        let iter = commit.additional_headers();
+        assert_eq!(iter.len(), 2);
+        for (received, (expected_name, expected_value)) in iter.zip(expected.into_iter()) {
+            assert_eq!(received.name(), expected_name);
+            assert_eq!(received.value(), expected_value);
+        }
     }
 }

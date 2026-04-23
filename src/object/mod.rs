@@ -25,6 +25,7 @@ use serde::{Deserialize, Serialize};
 
 mod blob;
 mod commit;
+mod header;
 mod tag;
 mod tree;
 
@@ -203,6 +204,14 @@ impl Object {
             .await?
             .ok_or_else(|| Error::MissingObject(id))?;
 
+        if object_type == ObjectType::Commit {
+            return Ok(Object::Commit(
+                Commit::parse(id, body)
+                    .map_err(InternalObjectError::from)
+                    .map_err(annotate_with_object_id(id))?,
+            ));
+        }
+
         let (_, object) = Self::parser(id, object_type)
             .parse(body.as_ref())
             .map_err(|e| match e {
@@ -228,9 +237,7 @@ impl Object {
     ) -> impl Fn(&'a [u8]) -> ParseResult<&'a [u8], Self> {
         move |body: &[u8]| {
             let (_, object) = match object_type {
-                ObjectType::Commit => all_consuming(Commit::parser(id))
-                    .map(Self::Commit)
-                    .parse(body)?,
+                ObjectType::Commit => todo!(),
                 ObjectType::Tag => all_consuming(Tag::parser(id)).map(Self::Tag).parse(body)?,
                 ObjectType::Tree => all_consuming(Tree::parser(id))
                     .map(Self::Tree)
@@ -244,7 +251,7 @@ impl Object {
 
 #[derive(Debug, PartialEq, Eq, Clone, Accessors)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct ObjectHeader {
+pub struct ObjectHeaderOwned {
     #[access(get(ty(&[u8])))]
     #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
     name: Vec<u8>,
@@ -254,7 +261,7 @@ pub struct ObjectHeader {
     value: Vec<u8>,
 }
 
-fn parse_object_headers(input: &[u8]) -> ParseResult<&[u8], Vec<ObjectHeader>> {
+fn parse_object_headers(input: &[u8]) -> ParseResult<&[u8], Vec<ObjectHeaderOwned>> {
     let header = (
         delimited(peek(not(newline)), take_till(|c| c == b' '), char(' ')),
         terminated(
@@ -267,14 +274,14 @@ fn parse_object_headers(input: &[u8]) -> ParseResult<&[u8], Vec<ObjectHeader>> {
     );
     let mut p = terminated(many0(header), newline);
     let (rest, raw_headers) = p.parse(input)?;
-    let mut headers: Vec<ObjectHeader> = Vec::new();
+    let mut headers: Vec<ObjectHeaderOwned> = Vec::new();
     for (name, (first_line, continuation_lines)) in raw_headers {
         let mut full_line = first_line.to_vec();
         for line in continuation_lines {
             full_line.push(b' ');
             full_line.extend_from_slice(line);
         }
-        headers.push(ObjectHeader {
+        headers.push(ObjectHeaderOwned {
             name: name.to_vec(),
             value: full_line,
         });
@@ -304,6 +311,15 @@ fn parse_author_committer_tagger(
     )
         .parse(input)
 }
+
+macro_rules! range_get {
+    ($field:ident, $source:ident) => {
+        pub fn $field(&self) -> &[u8] {
+            &self.$source[self.$field.clone()]
+        }
+    };
+}
+pub(crate) use range_get;
 
 #[cfg(test)]
 mod tests {

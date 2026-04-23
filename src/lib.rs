@@ -18,6 +18,7 @@ pub mod reference;
 mod repo;
 #[cfg(feature = "serde")]
 mod serde;
+mod subslice_range;
 pub mod traits;
 
 pub use repo::Repo;

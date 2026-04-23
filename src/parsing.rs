@@ -29,4 +29,14 @@ impl<E> nom::error::FromExternalError<&[u8], E> for ParseError {
     }
 }
 
+impl From<nom::Err<ParseError>> for ParseError {
+    fn from(value: nom::Err<ParseError>) -> Self {
+        match value {
+            nom::Err::Incomplete(_) => unimplemented!(),
+            nom::Err::Error(e) => e,
+            nom::Err::Failure(e) => e,
+        }
+    }
+}
+
 pub(crate) type ParseResult<I, T> = nom::IResult<I, T, ParseError>;

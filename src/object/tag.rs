@@ -1,6 +1,8 @@
 use crate::{
     error::GResult,
-    object::{Object, ObjectHeader, ObjectId, parse_author_committer_tagger, parse_object_headers},
+    object::{
+        Object, ObjectHeaderOwned, ObjectId, parse_author_committer_tagger, parse_object_headers,
+    },
     parsing::{ParseError, ParseResult},
     repo::Repo,
     traits::AllGenerics,
@@ -53,8 +55,8 @@ pub struct Tag {
     #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
     message: Vec<u8>,
 
-    #[access(get(ty(&[ObjectHeader])))]
-    additional_headers: Vec<ObjectHeader>,
+    #[access(get(ty(&[ObjectHeaderOwned])))]
+    additional_headers: Vec<ObjectHeaderOwned>,
 }
 
 impl PartialEq for Tag {
@@ -91,7 +93,7 @@ impl Tag {
             let mut tagger_email: Option<Vec<u8>> = None;
             let mut tag_date: Option<DateTime<FixedOffset>> = None;
             let mut additional_headers = Vec::new();
-            for ObjectHeader { name, value } in raw_headers {
+            for ObjectHeaderOwned { name, value } in raw_headers {
                 match name.as_slice() {
                     b"object" => {
                         let (_, object_id) = all_consuming(ObjectId::parse).parse(&value)?;
@@ -115,7 +117,7 @@ impl Tag {
                         tag_date = Some(date);
                     }
                     _ => {
-                        additional_headers.push(ObjectHeader { name, value });
+                        additional_headers.push(ObjectHeaderOwned { name, value });
                     }
                 }
             }

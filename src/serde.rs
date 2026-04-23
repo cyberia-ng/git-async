@@ -1,4 +1,4 @@
-use crate::object::ObjectId;
+use crate::object::{Commit, ObjectId};
 use serde::{
     Deserialize, Deserializer, Serialize, Serializer,
     de::{Error, Unexpected, Visitor},
@@ -59,6 +59,23 @@ impl serde::Serialize for MaybeUtf8<'_> {
             Utf8(str) => serializer.serialize_str(str),
             Bytes(bytes) => serializer.serialize_bytes(bytes),
         }
+    }
+}
+
+impl Serialize for Commit {
+    fn serialize<S>(&self, _serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        todo!()
+    }
+}
+impl<'de> Deserialize<'de> for Commit {
+    fn deserialize<D>(_deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        todo!()
     }
 }
 
