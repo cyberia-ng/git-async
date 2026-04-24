@@ -26,6 +26,12 @@ impl core::fmt::Debug for Path {
     }
 }
 
+impl Path {
+    pub fn as_slice(&self) -> &[u8] {
+        self.0.as_slice()
+    }
+}
+
 fn join(path: Option<&Path>, component: &[u8]) -> Path {
     match path {
         Some(p) => {
@@ -60,6 +66,22 @@ pub enum DiffEntry<Content> {
 }
 
 impl<Content> DiffEntry<Content> {
+    pub fn content(&self) -> &Content {
+        match self {
+            DiffEntry::LeftOnly { content, .. }
+            | DiffEntry::Both { content, .. }
+            | DiffEntry::RightOnly { content, .. } => content,
+        }
+    }
+
+    pub fn path(&self) -> &Path {
+        match self {
+            DiffEntry::LeftOnly { path, .. }
+            | DiffEntry::Both { path, .. }
+            | DiffEntry::RightOnly { path, .. } => path,
+        }
+    }
+
     pub fn map_content<T>(&self, fun: impl Fn(&Content) -> T) -> DiffEntry<T> {
         self.map_content_res(|c| Ok::<T, Infallible>(fun(c)))
             .unwrap()
