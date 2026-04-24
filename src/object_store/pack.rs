@@ -502,7 +502,7 @@ a tag
         let instruction_2: [u8; _] = [0b0000_0011, 0xc0, 0xff, 0xee];
         deltified_object.extend_from_slice(&instruction_2);
 
-        // Copy with special case size = 0 (interpeted as size = 0b10000)
+        // Copy with special case size = 0 (interpeted as size = 0x10000)
         let offset_3: u32 = 0x10000;
         let instruction_3: [u8; _] = [0b1000_0100, 0x01];
         deltified_object.extend_from_slice(&instruction_3);
