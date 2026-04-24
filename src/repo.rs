@@ -18,16 +18,6 @@ pub struct Repo<G: AllGenerics> {
     pub(crate) index_cache: IndexCache,
 }
 
-impl<G: AllGenerics> Clone for Repo<G> {
-    fn clone(&self) -> Self {
-        Self {
-            git_dir: self.git_dir.clone(),
-            pack_dir: self.pack_dir.clone(),
-            index_cache: self.index_cache.clone(),
-        }
-    }
-}
-
 impl<G: AllGenerics> Repo<G> {
     /// Open the repository located at `git_dir`.
     pub async fn new(git_dir: G::Directory) -> GResult<Self> {
