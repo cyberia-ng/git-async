@@ -35,6 +35,7 @@ pub struct Tag {
     #[access(get(cp))]
     target: ObjectId,
 
+    #[allow(clippy::struct_field_names)]
     #[access(get(cp))]
     tag_type: TagType,
 
@@ -44,7 +45,7 @@ pub struct Tag {
     message: Range<usize>,
 
     #[access(get(cp))]
-    tag_date: Option<DateTime<FixedOffset>>,
+    date: Option<DateTime<FixedOffset>>,
 
     additional_headers: Vec<RangeObjectHeader>,
 }
@@ -134,7 +135,7 @@ impl Tag {
             name: body.subslice_range_stable(f(tag)?).unwrap(),
             tagger_name: tagger_name.map(|t| body.subslice_range_stable(t).unwrap()),
             tagger_email: tagger_email.map(|t| body.subslice_range_stable(t).unwrap()),
-            tag_date,
+            date: tag_date,
             message: body.subslice_range_stable(message).unwrap(),
             additional_headers,
             body,
@@ -168,7 +169,7 @@ a message
         assert_eq!(tag.tagger_name(), Some(b"a-user".as_slice()));
         assert_eq!(tag.tagger_email(), Some(b"an-email-address".as_slice()));
         assert_eq!(
-            tag.tag_date,
+            tag.date,
             Some(DateTime::parse_from_rfc3339("2026-03-29T23:21:35+01:00").unwrap())
         );
         assert_eq!(&tag.message(), b"a message\n");

@@ -33,8 +33,7 @@ impl From<nom::Err<ParseError>> for ParseError {
     fn from(value: nom::Err<ParseError>) -> Self {
         match value {
             nom::Err::Incomplete(_) => unimplemented!(),
-            nom::Err::Error(e) => e,
-            nom::Err::Failure(e) => e,
+            nom::Err::Error(e) | nom::Err::Failure(e) => e,
         }
     }
 }

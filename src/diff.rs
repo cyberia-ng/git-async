@@ -117,6 +117,7 @@ pub struct TreeDiff {
 }
 
 impl TreeDiff {
+    #[allow(clippy::too_many_lines)]
     pub async fn new<G: AllGenerics>(repo: &Repo<G>, left: &Tree, right: &Tree) -> GResult<Self> {
         if left.id() == right.id() {
             return Ok(Self {
@@ -133,7 +134,7 @@ impl TreeDiff {
             // - one of left or right is Some()
             // - left and right have different IDs
             debug_assert!(left.is_some() || right.is_some());
-            debug_assert!(left.as_ref().map(|t| t.id()) != right.as_ref().map(|t| t.id()));
+            debug_assert!(left.as_ref().map(Tree::id) != right.as_ref().map(Tree::id));
             let (left, right) = match (left, right) {
                 (Some(left), Some(right)) => (left, right),
                 (Some(left), None) => {
@@ -270,7 +271,7 @@ impl TreeDiff {
         let mut out: Vec<_> = Vec::with_capacity(self.entries.len());
         for entry in &self.entries {
             let entry = entry.resolve(repo, config.clone()).await?;
-            out.push(entry)
+            out.push(entry);
         }
         Ok(Diff { entries: out })
     }
@@ -342,7 +343,7 @@ async fn read_leaf<G: AllGenerics>(
 ) -> GResult<Vec<u8>> {
     debug_assert!(entry_type != TreeEntryType::Tree);
     if entry_type == TreeEntryType::Commit {
-        let s = format!("{}", id);
+        let s = format!("{id}");
         return Ok(s.into_bytes());
     }
     let object = repo.lookup_object(id).await?;
@@ -387,7 +388,7 @@ mod tests {
                 .unwrap()
                 .entries()
                 .is_empty()
-        )
+        );
     }
 
     #[test]

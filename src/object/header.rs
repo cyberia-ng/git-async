@@ -83,9 +83,10 @@ impl<'a> Iterator for ObjectHeaderIter<'a> {
     }
 }
 
-impl<'a> FusedIterator for ObjectHeaderIter<'a> {}
-impl<'a> ExactSizeIterator for ObjectHeaderIter<'a> {}
+impl FusedIterator for ObjectHeaderIter<'_> {}
+impl ExactSizeIterator for ObjectHeaderIter<'_> {}
 
+#[allow(clippy::unnecessary_wraps)]
 fn continued_line(input: &[u8]) -> ParseResult<&[u8], &[u8]> {
     let mut slice_pos = input.len();
     for (pos, window) in input.windows(2).enumerate() {

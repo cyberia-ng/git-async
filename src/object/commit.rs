@@ -39,6 +39,7 @@ pub struct Commit {
     #[access(get(cp))]
     author_date: DateTime<FixedOffset>,
 
+    #[allow(clippy::struct_field_names)]
     #[access(get(cp))]
     commit_date: DateTime<FixedOffset>,
 
@@ -70,7 +71,7 @@ impl Commit {
     pub async fn lookup_parents<G: AllGenerics>(&self, repo: &Repo<G>) -> GResult<Vec<Commit>> {
         let mut out = Vec::with_capacity(self.parents.len());
         for parent in &self.parents {
-            out.push(repo.lookup_object(*parent).await?.commit()?)
+            out.push(repo.lookup_object(*parent).await?.commit()?);
         }
         Ok(out)
     }

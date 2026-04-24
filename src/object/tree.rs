@@ -40,7 +40,7 @@ pub struct TreeEntry<'a> {
     id: ObjectId,
 }
 
-impl<'a> TreeEntry<'a> {
+impl TreeEntry<'_> {
     pub async fn lookup<G: AllGenerics>(&self, repo: &Repo<G>) -> GResult<Option<Object>> {
         if self.entry_type == TreeEntryType::Commit {
             Ok(None)
@@ -112,8 +112,8 @@ impl<'a> Iterator for TreeEntryIter<'a> {
     }
 }
 
-impl<'a> FusedIterator for TreeEntryIter<'a> {}
-impl<'a> ExactSizeIterator for TreeEntryIter<'a> {}
+impl FusedIterator for TreeEntryIter<'_> {}
+impl ExactSizeIterator for TreeEntryIter<'_> {}
 
 #[derive(Accessors, Clone)]
 pub struct Tree {
@@ -159,7 +159,7 @@ impl Tree {
     pub(crate) fn parse(id: ObjectId, body: Vec<u8>) -> Result<Self, ParseError> {
         let (_, entries): (_, Vec<_>) =
             all_consuming(many(0.., RangeTreeEntry::parser(&body))).parse(&body)?;
-        Ok(Self { id, entries, body })
+        Ok(Self { id, body, entries })
     }
 }
 

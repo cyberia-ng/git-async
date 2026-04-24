@@ -69,9 +69,8 @@ impl Directory<TestRepoFile> for TestRepoDirectory {
             Err(e) => {
                 if e.kind() == io::ErrorKind::NotFound {
                     return Err(FilesystemError::NotFound(Box::new(e)));
-                } else {
-                    return Err(FilesystemError::Other(Box::new(e)));
                 }
+                return Err(FilesystemError::Other(Box::new(e)));
             }
         };
         Ok(TestRepoFile {

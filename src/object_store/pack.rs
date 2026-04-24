@@ -200,6 +200,7 @@ async fn read_pack_object_body<F: File>(
     let mut state = Box::<DecompressorOxide>::default();
     let mut out_idx: usize = 0;
     loop {
+        use TINFLStatus::*;
         pack_file
             .read_segment(
                 object.body_offset + u64::try_from(pos).unwrap(),
@@ -217,11 +218,9 @@ async fn read_pack_object_body<F: File>(
         );
         pos += input_read;
         out_idx += output_written;
-        use TINFLStatus::*;
         match status {
             Done => break,
-            NeedsMoreInput => {}
-            HasMoreOutput => {}
+            NeedsMoreInput | HasMoreOutput => {}
             _ => {
                 return Err(InternalObjectError::PackObjectDecompressError(
                     PackDecompressError {
@@ -479,12 +478,12 @@ a tag
         }
 
         let mut deltified_object = Vec::new();
-        let base_object_size_encoded: [u8; _] = [0b10000000, 0b10000000, 0b00001000]; // 128 * 1024
+        let base_object_size_encoded: [u8; _] = [0b1000_0000, 0b1000_0000, 0b0000_1000]; // 128 * 1024
         assert_eq!(
             read_delta_expected_size(&base_object_size_encoded).1,
             ObjectSize(128 * 1024)
         );
-        let target_object_size_encoded: [u8; _] = [0b10001101, 0b10000000, 0b00000100]; // 10 + 3 + 0x10000
+        let target_object_size_encoded: [u8; _] = [0b1000_1101, 0b1000_0000, 0b0000_0100]; // 10 + 3 + 0x10000
         assert_eq!(
             read_delta_expected_size(&target_object_size_encoded).1,
             ObjectSize(10 + 3 + 0x10000)
@@ -496,16 +495,16 @@ a tag
         // Small copy
         let offset_1: u32 = 65;
         let size_1: u32 = 10;
-        let instruction_1: [u8; _] = [0b10010001, 65, 10];
+        let instruction_1: [u8; _] = [0b1001_0001, 65, 10];
         deltified_object.extend_from_slice(&instruction_1);
 
         // Append
-        let instruction_2: [u8; _] = [0b00000011, 0xc0, 0xff, 0xee];
+        let instruction_2: [u8; _] = [0b0000_0011, 0xc0, 0xff, 0xee];
         deltified_object.extend_from_slice(&instruction_2);
 
         // Copy with special case size = 0 (interpeted as size = 0b10000)
         let offset_3: u32 = 0x10000;
-        let instruction_3: [u8; _] = [0b10000100, 0x01];
+        let instruction_3: [u8; _] = [0b1000_0100, 0x01];
         deltified_object.extend_from_slice(&instruction_3);
 
         let reconstructed = reconstruct_deltified_object(&deltified_object, &base_object);
