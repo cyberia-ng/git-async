@@ -118,26 +118,16 @@ pub struct Diff {
 #[derive(Accessors)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "serde", serde(bound = ""))]
-pub struct TreeDiff<G: AllGenerics> {
+pub struct TreeDiff {
     #[access(get(ty(&[DiffEntry<(ObjectId, ObjectId)>])))]
     entries: Vec<DiffEntry<(ObjectId, ObjectId)>>,
-
-    #[cfg_attr(feature = "serde", serde(skip))]
-    repo: Option<Repo<G>>,
 }
 
-impl<G: AllGenerics> TreeDiff<G> {
-    pub(crate) fn repo(&self) -> GResult<&Repo<G>> {
-        self.repo
-            .as_ref()
-            .ok_or_else(|| Error::NotAnnotatedWithRepo)
-    }
-
-    pub async fn new(repo: &Repo<G>, left: &Tree, right: &Tree) -> GResult<Self> {
+impl TreeDiff {
+    pub async fn new<G: AllGenerics>(repo: &Repo<G>, left: &Tree, right: &Tree) -> GResult<Self> {
         if left.id() == right.id() {
             return Ok(Self {
                 entries: Vec::new(),
-                repo: Some(repo.clone()),
             });
         }
         let mut out: Vec<DiffEntry<(ObjectId, ObjectId)>> = Vec::new();
@@ -276,16 +266,17 @@ impl<G: AllGenerics> TreeDiff<G> {
                 }
             }
         }
-        Ok(Self {
-            entries: out,
-            repo: Some(repo.clone()),
-        })
+        Ok(Self { entries: out })
     }
 
-    pub async fn to_text_diff(&self, config: TextDiffConfig) -> GResult<Diff> {
+    pub async fn to_text_diff<G: AllGenerics>(
+        &self,
+        repo: &Repo<G>,
+        config: TextDiffConfig,
+    ) -> GResult<Diff> {
         let mut out: Vec<_> = Vec::with_capacity(self.entries.len());
         for entry in &self.entries {
-            let entry = entry.resolve(self.repo()?, config.clone()).await?;
+            let entry = entry.resolve(repo, config.clone()).await?;
             out.push(entry)
         }
         Ok(Diff { entries: out })
