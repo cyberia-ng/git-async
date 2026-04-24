@@ -2,7 +2,6 @@
 name = "rgit-core"
 version = "0.1.0"
 edition = "2024"
-authors = ["cyberia <cyberia@donk.systems>"]
 license = "MIT OR Apache-2.0"
 description = "An async-aware git library"
 keywords = ["async", "git"]
