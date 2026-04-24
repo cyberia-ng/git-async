@@ -1,7 +1,7 @@
 use crate::{
     error::GResult,
     object::{
-        ObjectId, Tree,
+        Object, ObjectId, Tree,
         header::{ObjectHeaderIter, RangeObjectHeader},
         parse_author_committer_tagger, range_get,
     },
@@ -83,6 +83,10 @@ impl Commit {
 
     pub fn additional_headers(&self) -> ObjectHeaderIter<'_> {
         ObjectHeaderIter::new(&self.body, &self.additional_headers)
+    }
+
+    pub fn as_object(self) -> Object {
+        Object::Commit(self)
     }
 
     pub(crate) fn parse(id: ObjectId, body: Vec<u8>) -> Result<Self, ParseError> {

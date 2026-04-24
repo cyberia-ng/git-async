@@ -80,6 +80,10 @@ impl Tag {
         ObjectHeaderIter::new(self.body.as_slice(), self.additional_headers.as_slice())
     }
 
+    pub fn as_object(self) -> Object {
+        Object::Tag(self)
+    }
+
     pub(crate) fn parse(id: ObjectId, body: Vec<u8>) -> Result<Self, ParseError> {
         fn f<T>(val: Option<T>) -> Result<T, ParseError> {
             val.ok_or(ParseError::MissingFields)
