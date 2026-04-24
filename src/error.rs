@@ -8,13 +8,9 @@ use accessory::Accessors;
 use alloc::vec::Vec;
 use miniz_oxide::inflate::TINFLStatus;
 
-#[cfg(feature = "serde")]
-use serde::Serialize;
-
 pub type GResult<T> = core::result::Result<T, Error>;
 
 #[derive(Debug, Accessors)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct UnexpectedObjectType {
     #[access(get(cp))]
     pub(crate) id: ObjectId,
@@ -25,20 +21,18 @@ pub struct UnexpectedObjectType {
 }
 
 #[derive(Debug)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Error {
-    FileSystem(#[cfg_attr(feature = "serde", serde(skip))] FilesystemError),
-    PathError(#[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))] Vec<u8>),
+    FileSystem(FilesystemError),
+    PathError(Vec<u8>),
     LooseObjectDecompressError {
         id: ObjectId,
-        #[cfg_attr(feature = "serde", serde(skip))]
         status: TINFLStatus,
     },
     PackObjectDecompressError {
         id: ObjectId,
         error: PackDecompressError,
     },
-    FromHexError(#[cfg_attr(feature = "serde", serde(skip))] hex::FromHexError),
+    FromHexError(hex::FromHexError),
     UnsupportedIndexVersion,
     CorruptIndexFile,
     UnsupportedPackVersion,
@@ -50,7 +44,6 @@ pub enum Error {
     MalformedObject(ObjectId),
     ObjectParseError {
         id: ObjectId,
-        #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
         snippet: Vec<u8>,
     },
     ObjectMissingRequiredFields(ObjectId),
@@ -128,11 +121,9 @@ pub(crate) fn annotate_with_object_id(id: ObjectId) -> impl Fn(InternalObjectErr
 }
 
 #[derive(Debug)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct PackDecompressError {
     pub input_position: usize,
     pub output_position: usize,
     pub pack_offset: Offset,
-    #[cfg_attr(feature = "serde", serde(skip))]
     pub status: TINFLStatus,
 }

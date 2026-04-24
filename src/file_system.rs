@@ -15,8 +15,6 @@
 
 use alloc::{boxed::Box, vec::Vec};
 use core::{any::Any, future::Future};
-#[cfg(feature = "serde")]
-use serde::Serialize;
 
 /// Represents a directory entry
 ///
@@ -61,7 +59,6 @@ pub trait Directory<File>: Sized + Clone {
 
 /// An offset within a file; a newtype wrapper around a [`u64`]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Offset(pub u64);
 
 impl core::ops::Add<u64> for Offset {

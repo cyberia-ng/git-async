@@ -19,8 +19,6 @@ use nom::{
     combinator::all_consuming,
     sequence::terminated,
 };
-#[cfg(feature = "serde")]
-use serde::{Deserialize, Serialize};
 
 mod blob;
 mod commit;
@@ -81,9 +79,6 @@ impl ObjectId {
 }
 
 #[derive(Clone)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[cfg_attr(feature = "serde", serde(tag = "type"))]
-#[cfg_attr(feature = "serde", serde(bound = ""))]
 pub enum Object {
     Commit(Commit),
     Tree(Tree),

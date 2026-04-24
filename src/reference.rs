@@ -18,15 +18,10 @@ use nom::{
     sequence::{delimited, preceded, terminated},
 };
 
-#[cfg(feature = "serde")]
-use serde::{Deserialize, Serialize};
-
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[cfg_attr(feature = "serde", serde(tag = "type", content = "value"))]
 pub enum RefName {
     Head,
-    Ref(#[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))] Vec<u8>),
+    Ref(Vec<u8>),
 }
 
 impl RefName {
@@ -62,8 +57,6 @@ impl RefName {
 }
 
 #[derive(Accessors, Clone)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound = ""))]
 pub struct Ref {
     #[access(get)]
     name: RefName,
@@ -73,8 +66,6 @@ pub struct Ref {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[cfg_attr(feature = "serde", serde(tag = "type", content = "value"))]
 pub enum RefType {
     Direct(ObjectId),
     Symbolic(RefName),

@@ -15,11 +15,8 @@ use alloc::vec::Vec;
 use chrono::{DateTime, FixedOffset};
 use core::ops::Range;
 use nom::{Parser, combinator::all_consuming};
-#[cfg(feature = "serde")]
-use serde::{Deserialize, Serialize};
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum TagType {
     Commit,
     Blob,

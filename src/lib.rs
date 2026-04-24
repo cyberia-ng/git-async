@@ -16,8 +16,6 @@ mod object_store;
 mod parsing;
 pub mod reference;
 mod repo;
-#[cfg(feature = "serde")]
-mod serde;
 mod subslice_range;
 pub mod traits;
 

@@ -1,17 +1,13 @@
 use crate::object::ObjectId;
 use accessory::Accessors;
 use alloc::vec::Vec;
-#[cfg(feature = "serde")]
-use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Accessors)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Blob {
     #[access(get(cp))]
     id: ObjectId,
 
     #[access(get(ty(&[u8])))]
-    #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
     data: Vec<u8>,
 }
 

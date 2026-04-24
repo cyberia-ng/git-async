@@ -1,6 +1,4 @@
 use alloc::vec::Vec;
-#[cfg(feature = "serde")]
-use serde::Serialize;
 
 pub(crate) mod cache;
 mod index;
@@ -10,7 +8,6 @@ mod pack;
 pub(crate) mod page_read;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum ObjectType {
     Commit,
     Tag,

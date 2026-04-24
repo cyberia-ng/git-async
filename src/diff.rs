@@ -9,13 +9,10 @@ use crate::{
 use accessory::Accessors;
 use alloc::format;
 use alloc::{string::String, vec::Vec};
-#[cfg(feature = "serde")]
-use serde::{Deserialize, Serialize};
 use similar::{TextDiff, TextDiffConfig};
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct Path(#[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))] Vec<u8>);
+pub struct Path(Vec<u8>);
 
 impl core::fmt::Debug for Path {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -43,8 +40,6 @@ fn join(path: Option<&Path>, component: &[u8]) -> Path {
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[cfg_attr(feature = "serde", serde(tag = "type"))]
 pub enum DiffEntry<Content> {
     LeftOnly {
         path: Path,
@@ -116,8 +111,6 @@ pub struct Diff {
 }
 
 #[derive(Accessors)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound = ""))]
 pub struct TreeDiff {
     #[access(get(ty(&[DiffEntry<(ObjectId, ObjectId)>])))]
     entries: Vec<DiffEntry<(ObjectId, ObjectId)>>,
