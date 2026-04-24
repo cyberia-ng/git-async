@@ -1,4 +1,3 @@
-use crate::object::ObjectId;
 use alloc::vec::Vec;
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -25,6 +24,5 @@ pub struct ObjectSize(pub u64);
 #[derive(Debug)]
 pub(crate) struct RawObject {
     pub object_type: ObjectType,
-    pub id: ObjectId,
     pub body: Vec<u8>,
 }

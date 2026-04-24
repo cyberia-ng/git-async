@@ -1,22 +1,23 @@
 use crate::{
     error::GResult,
     object::{Object, ObjectId},
-    parsing::ParseResult,
+    parsing::{ParseError, ParseResult},
     repo::Repo,
+    subslice_range::SubsliceRange,
     traits::AllGenerics,
 };
 use accessory::Accessors;
 use alloc::vec::Vec;
-use core::fmt::Debug;
+use core::{fmt::Debug, iter::FusedIterator, ops::Range};
 use nom::{
     Parser,
     branch::alt,
     bytes::complete::{tag, take, take_till},
     character::complete::char,
+    combinator::all_consuming,
     multi::many,
     sequence::terminated,
 };
-
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
@@ -30,13 +31,10 @@ pub enum TreeEntryType {
     Commit,
 }
 
-#[derive(Accessors, Clone)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound = ""))]
-pub struct TreeEntry {
-    #[access(get(ty(&[u8])))]
-    #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
-    name: Vec<u8>,
+#[derive(Accessors, Clone, PartialEq, Eq)]
+pub struct TreeEntry<'a> {
+    #[access(get(cp))]
+    name: &'a [u8],
 
     #[access(get(cp))]
     entry_type: TreeEntryType,
@@ -45,23 +43,7 @@ pub struct TreeEntry {
     id: ObjectId,
 }
 
-impl PartialEq for TreeEntry {
-    fn eq(&self, other: &Self) -> bool {
-        self.name == other.name && self.entry_type == other.entry_type && self.id == other.id
-    }
-}
-impl Eq for TreeEntry {}
-impl Debug for TreeEntry {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("TreeEntry")
-            .field("name", &self.name)
-            .field("entry_type", &self.entry_type)
-            .field("id", &self.id)
-            .finish()
-    }
-}
-
-impl TreeEntry {
+impl<'a> TreeEntry<'a> {
     pub async fn lookup<G: AllGenerics>(&self, repo: &Repo<G>) -> GResult<Option<Object>> {
         if self.entry_type == TreeEntryType::Commit {
             Ok(None)
@@ -69,9 +51,18 @@ impl TreeEntry {
             Ok(Some(repo.lookup_object(self.id).await?))
         }
     }
+}
 
-    fn parser<'a>() -> impl Fn(&'a [u8]) -> ParseResult<&'a [u8], Self> {
-        move |input: &'a [u8]| {
+#[derive(Clone)]
+struct RangeTreeEntry {
+    name: Range<usize>,
+    entry_type: TreeEntryType,
+    id: ObjectId,
+}
+
+impl RangeTreeEntry {
+    fn parser(body: &[u8]) -> impl Fn(&[u8]) -> ParseResult<&[u8], Self> {
+        |input: &[u8]| {
             let entry_type_parser = alt((
                 tag("40000").map(|_| TreeEntryType::Tree),
                 tag("100644").map(|_| TreeEntryType::File),
@@ -87,9 +78,9 @@ impl TreeEntry {
             let (rest, (entry_type, name, id)) = p.parse(input)?;
             Ok((
                 rest,
-                TreeEntry {
+                RangeTreeEntry {
+                    name: body.subslice_range_stable(name).unwrap(),
                     entry_type,
-                    name: name.to_vec(),
                     id,
                 },
             ))
@@ -97,15 +88,45 @@ impl TreeEntry {
     }
 }
 
+pub struct TreeEntryIter<'a> {
+    body: &'a [u8],
+    entries: &'a [RangeTreeEntry],
+    pos: usize,
+}
+
+impl<'a> Iterator for TreeEntryIter<'a> {
+    type Item = TreeEntry<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let entry = self.entries.get(self.pos)?;
+        self.pos += 1;
+        Some(TreeEntry {
+            name: &self.body[entry.name.clone()],
+            entry_type: entry.entry_type,
+            id: entry.id,
+        })
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (
+            self.entries.len() - self.pos,
+            Some(self.entries.len() - self.pos),
+        )
+    }
+}
+
+impl<'a> FusedIterator for TreeEntryIter<'a> {}
+impl<'a> ExactSizeIterator for TreeEntryIter<'a> {}
+
 #[derive(Accessors, Clone)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound = ""))]
 pub struct Tree {
     #[access(get(cp))]
     id: ObjectId,
 
-    #[access(get(ty(&[TreeEntry])))]
-    entries: Vec<TreeEntry>,
+    #[access(get(ty(&[u8])))]
+    body: Vec<u8>,
+
+    entries: Vec<RangeTreeEntry>,
 }
 
 impl PartialEq for Tree {
@@ -126,19 +147,24 @@ impl Ord for Tree {
 }
 
 impl Tree {
-    pub(crate) fn parser<'a>(id: ObjectId) -> impl Fn(&'a [u8]) -> ParseResult<&'a [u8], Self> {
-        move |input: &'a [u8]| {
-            many(0.., TreeEntry::parser())
-                .map(|entries| Tree { id, entries })
-                .parse(input)
+    pub fn entries(&self) -> TreeEntryIter<'_> {
+        TreeEntryIter {
+            body: self.body.as_slice(),
+            entries: self.entries.as_slice(),
+            pos: 0,
         }
+    }
+
+    pub(crate) fn parse(id: ObjectId, body: Vec<u8>) -> Result<Self, ParseError> {
+        let (_, entries): (_, Vec<_>) =
+            all_consuming(many(0.., RangeTreeEntry::parser(&body))).parse(&body)?;
+        Ok(Self { id, entries, body })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use core::iter::zip;
     use hex_literal::hex;
 
     const ZERO_OID: ObjectId = ObjectId::new([0; 20]);
@@ -156,36 +182,40 @@ mod tests {
         data.extend_from_slice(&hex!("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"));
         data.extend_from_slice(b"160000 a-commit\0");
         data.extend_from_slice(&hex!("91ca81cfccb6f88a34807e9810bb0be409f32d70"));
-        let (_, tree) = Tree::parser(ZERO_OID).parse(&data).unwrap();
-        let expected_entries = [
-            TreeEntry {
-                entry_type: TreeEntryType::Tree,
-                id: ObjectId::new(hex!("3a4df67dd7fd7cb3ca82d9896dbdd28053d39bdb")),
-                name: Vec::from(b"a-directory"),
-            },
-            TreeEntry {
-                entry_type: TreeEntryType::File,
-                id: ObjectId::new(hex!("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391")),
-                name: Vec::from(b"a-file"),
-            },
-            TreeEntry {
-                entry_type: TreeEntryType::Symlink,
-                id: ObjectId::new(hex!("7c35e066a9001b24677ae572214d292cebc55979")),
-                name: Vec::from(b"a-symlink"),
-            },
-            TreeEntry {
-                entry_type: TreeEntryType::Executable,
-                id: ObjectId::new(hex!("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391")),
-                name: Vec::from(b"an-executable-file"),
-            },
-            TreeEntry {
-                entry_type: TreeEntryType::Commit,
-                id: ObjectId::new(hex!("91ca81cfccb6f88a34807e9810bb0be409f32d70")),
-                name: Vec::from(b"a-commit"),
-            },
+        let tree = Tree::parse(ZERO_OID, data).unwrap();
+        let entries = tree.entries();
+        assert_eq!(entries.len(), 5);
+        let expected = [
+            (
+                TreeEntryType::Tree,
+                ObjectId::new(hex!("3a4df67dd7fd7cb3ca82d9896dbdd28053d39bdb")),
+                b"a-directory".as_slice(),
+            ),
+            (
+                TreeEntryType::File,
+                ObjectId::new(hex!("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391")),
+                b"a-file".as_slice(),
+            ),
+            (
+                TreeEntryType::Symlink,
+                ObjectId::new(hex!("7c35e066a9001b24677ae572214d292cebc55979")),
+                b"a-symlink".as_slice(),
+            ),
+            (
+                TreeEntryType::Executable,
+                ObjectId::new(hex!("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391")),
+                b"an-executable-file".as_slice(),
+            ),
+            (
+                TreeEntryType::Commit,
+                ObjectId::new(hex!("91ca81cfccb6f88a34807e9810bb0be409f32d70")),
+                b"a-commit".as_slice(),
+            ),
         ];
-        for (entry, expected) in zip(tree.entries.iter(), expected_entries.iter()) {
-            assert_eq!(entry, expected);
+        for (received, (entry_type, id, name)) in entries.zip(expected.into_iter()) {
+            assert_eq!(received.entry_type(), entry_type);
+            assert_eq!(received.id(), id);
+            assert_eq!(received.name(), name);
         }
     }
 }

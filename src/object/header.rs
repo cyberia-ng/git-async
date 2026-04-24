@@ -76,7 +76,10 @@ impl<'a> Iterator for ObjectHeaderIter<'a> {
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        (self.headers.len(), Some(self.headers.len()))
+        (
+            self.headers.len() - self.pos,
+            Some(self.headers.len() - self.pos),
+        )
     }
 }
 

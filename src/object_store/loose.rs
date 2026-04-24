@@ -69,7 +69,6 @@ pub(crate) async fn read_loose_object<G: AllGenerics>(
     let (body, (_, object_type)) = parse_header(&data).map_err(|_| Error::MalformedObject(id))?;
     Ok(Some(RawObject {
         object_type,
-        id,
         body: body.to_vec(),
     }))
 }
@@ -110,7 +109,6 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(object.object_type, ObjectType::Commit);
-        assert_eq!(object.id, commit_id);
         assert_eq!(
             object.body,
             b"tree 3a4df67dd7fd7cb3ca82d9896dbdd28053d39bdb

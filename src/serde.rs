@@ -1,4 +1,4 @@
-use crate::object::{Commit, ObjectId};
+use crate::object::{Commit, ObjectId, Tag, Tree};
 use serde::{
     Deserialize, Deserializer, Serialize, Serializer,
     de::{Error, Unexpected, Visitor},
@@ -71,6 +71,38 @@ impl Serialize for Commit {
     }
 }
 impl<'de> Deserialize<'de> for Commit {
+    fn deserialize<D>(_deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        todo!()
+    }
+}
+impl Serialize for Tag {
+    fn serialize<S>(&self, _serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        todo!()
+    }
+}
+impl<'de> Deserialize<'de> for Tag {
+    fn deserialize<D>(_deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        todo!()
+    }
+}
+impl Serialize for Tree {
+    fn serialize<S>(&self, _serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        todo!()
+    }
+}
+impl<'de> Deserialize<'de> for Tree {
     fn deserialize<D>(_deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,

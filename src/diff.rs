@@ -8,7 +8,7 @@ use crate::{
 };
 use accessory::Accessors;
 use alloc::format;
-use alloc::vec::Vec;
+use alloc::{string::String, vec::Vec};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use similar::{TextDiff, TextDiffConfig};
@@ -21,7 +21,10 @@ impl core::fmt::Debug for Path {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match str::from_utf8(&self.0) {
             Ok(p) => f.debug_tuple("Path").field(&p).finish(),
-            Err(_) => f.debug_tuple("Path").field(&"non UTF-8 path").finish(),
+            Err(_) => f
+                .debug_tuple("Path")
+                .field(&String::from_utf8_lossy(&self.0))
+                .finish(),
         }
     }
 }
@@ -185,14 +188,11 @@ impl<G: AllGenerics> TreeDiff<G> {
                 (None, None) => unreachable!(),
             };
 
-            let mut left_only: Vec<&TreeEntry> = Vec::new();
-            let mut right_only: Vec<&TreeEntry> = Vec::new();
-            let mut both: Vec<(&TreeEntry, &TreeEntry)> = Vec::new();
+            let mut left_only: Vec<TreeEntry> = Vec::new();
+            let mut right_only: Vec<TreeEntry> = Vec::new();
+            let mut both: Vec<(TreeEntry, TreeEntry)> = Vec::new();
             for left_entry in left.entries() {
-                let right_entry = right
-                    .entries()
-                    .iter()
-                    .find(|e| e.name() == left_entry.name());
+                let right_entry = right.entries().find(|e| e.name() == left_entry.name());
                 match right_entry {
                     Some(e) => both.push((left_entry, e)),
                     None => left_only.push(left_entry),

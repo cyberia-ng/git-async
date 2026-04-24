@@ -21,6 +21,7 @@ pub struct Commit {
     #[access(get(cp))]
     id: ObjectId,
 
+    #[access(get(ty(&[u8])))]
     body: Vec<u8>,
 
     #[access(get(cp))]
@@ -72,10 +73,6 @@ impl Commit {
             out.push(repo.lookup_object(*parent).await?.commit()?)
         }
         Ok(out)
-    }
-
-    pub fn body(&self) -> &[u8] {
-        &self.body
     }
 
     range_get!(author_name, body);

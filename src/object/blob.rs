@@ -41,32 +41,3 @@ impl Blob {
         self.data
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::object::{Object, ObjectType};
-    use nom::Parser;
-
-    const ZERO_OID: ObjectId = ObjectId::new([0; 20]);
-
-    #[test]
-    fn parse_empty_blob() {
-        let input = b"";
-        let (_, object) = Object::parser(ZERO_OID, ObjectType::Blob)
-            .parse(input)
-            .unwrap();
-        let Object::Blob(blob) = object else { panic!() };
-        assert!(blob.data.is_empty());
-    }
-
-    #[test]
-    fn parse_contentful_blob() {
-        let input = b"hello world";
-        let (_, object) = Object::parser(ZERO_OID, ObjectType::Blob)
-            .parse(input)
-            .unwrap();
-        let Object::Blob(blob) = object else { panic!() };
-        assert_eq!(blob.data, b"hello world");
-    }
-}

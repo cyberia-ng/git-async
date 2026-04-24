@@ -1,15 +1,19 @@
 use crate::{
     error::GResult,
     object::{
-        Object, ObjectHeaderOwned, ObjectId, parse_author_committer_tagger, parse_object_headers,
+        Object, ObjectId,
+        header::{ObjectHeaderIter, RangeObjectHeader},
+        parse_author_committer_tagger, range_get, range_get_option,
     },
-    parsing::{ParseError, ParseResult},
+    parsing::ParseError,
     repo::Repo,
+    subslice_range::SubsliceRange,
     traits::AllGenerics,
 };
 use accessory::Accessors;
 use alloc::vec::Vec;
 use chrono::{DateTime, FixedOffset};
+use core::ops::Range;
 use nom::{Parser, combinator::all_consuming};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -24,11 +28,12 @@ pub enum TagType {
 }
 
 #[derive(Accessors, Clone)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound = ""))]
 pub struct Tag {
     #[access(get(cp))]
     id: ObjectId,
+
+    #[access(get(ty(&[u8])))]
+    body: Vec<u8>,
 
     #[access(get(cp))]
     target: ObjectId,
@@ -36,27 +41,15 @@ pub struct Tag {
     #[access(get(cp))]
     tag_type: TagType,
 
-    #[access(get(ty(&[u8])))]
-    #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
-    name: Vec<u8>,
-
-    #[access(get(as_ref, ty(Option<&Vec<u8>>)))]
-    #[cfg_attr(feature = "serde", serde(with = "crate::serde::option_utf8"))]
-    tagger_name: Option<Vec<u8>>,
-
-    #[access(get(as_ref, ty(Option<&Vec<u8>>)))]
-    #[cfg_attr(feature = "serde", serde(with = "crate::serde::option_utf8"))]
-    tagger_email: Option<Vec<u8>>,
+    name: Range<usize>,
+    tagger_name: Option<Range<usize>>,
+    tagger_email: Option<Range<usize>>,
+    message: Range<usize>,
 
     #[access(get(cp))]
     tag_date: Option<DateTime<FixedOffset>>,
 
-    #[access(get(ty(&[u8])))]
-    #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
-    message: Vec<u8>,
-
-    #[access(get(ty(&[ObjectHeaderOwned])))]
-    additional_headers: Vec<ObjectHeaderOwned>,
+    additional_headers: Vec<RangeObjectHeader>,
 }
 
 impl PartialEq for Tag {
@@ -80,65 +73,71 @@ impl Tag {
     pub async fn lookup_target<G: AllGenerics>(&self, repo: &Repo<G>) -> GResult<Object> {
         repo.lookup_object(self.target).await
     }
-}
 
-impl Tag {
-    pub(crate) fn parser<'a>(id: ObjectId) -> impl Fn(&'a [u8]) -> ParseResult<&'a [u8], Self> {
-        move |input: &[u8]| {
-            let (message, raw_headers) = parse_object_headers.parse(input)?;
-            let mut object: Option<ObjectId> = None;
-            let mut tag_type: Option<TagType> = None;
-            let mut tag: Option<Vec<u8>> = None;
-            let mut tagger_name: Option<Vec<u8>> = None;
-            let mut tagger_email: Option<Vec<u8>> = None;
-            let mut tag_date: Option<DateTime<FixedOffset>> = None;
-            let mut additional_headers = Vec::new();
-            for ObjectHeaderOwned { name, value } in raw_headers {
-                match name.as_slice() {
-                    b"object" => {
-                        let (_, object_id) = all_consuming(ObjectId::parse).parse(&value)?;
-                        object = Some(object_id);
-                    }
-                    b"type" => {
-                        tag_type = match value.as_slice() {
-                            b"commit" => Some(TagType::Commit),
-                            b"blob" => Some(TagType::Blob),
-                            b"tree" => Some(TagType::Tree),
-                            b"tag" => Some(TagType::Tag),
-                            _ => None,
-                        };
-                    }
-                    b"tag" => tag = Some(value),
-                    b"tagger" => {
-                        let (_, (name, email, date)) =
-                            all_consuming(parse_author_committer_tagger).parse(&value)?;
-                        tagger_name = Some(name.to_vec());
-                        tagger_email = Some(email.to_vec());
-                        tag_date = Some(date);
-                    }
-                    _ => {
-                        additional_headers.push(ObjectHeaderOwned { name, value });
-                    }
+    range_get!(name, body);
+    range_get_option!(tagger_name, body);
+    range_get_option!(tagger_email, body);
+    range_get!(message, body);
+
+    pub fn additional_headers(&self) -> ObjectHeaderIter<'_> {
+        ObjectHeaderIter::new(self.body.as_slice(), self.additional_headers.as_slice())
+    }
+
+    pub(crate) fn parse(id: ObjectId, body: Vec<u8>) -> Result<Self, ParseError> {
+        fn f<T>(val: Option<T>) -> Result<T, ParseError> {
+            val.ok_or(ParseError::MissingFields)
+        }
+        let (message, raw_headers) = RangeObjectHeader::parser(&body)?;
+        let mut object: Option<ObjectId> = None;
+        let mut tag_type: Option<TagType> = None;
+        let mut tag: Option<&[u8]> = None;
+        let mut tagger_name: Option<&[u8]> = None;
+        let mut tagger_email: Option<&[u8]> = None;
+        let mut tag_date: Option<DateTime<FixedOffset>> = None;
+        let mut additional_headers = Vec::new();
+        for (range_header, header) in raw_headers
+            .iter()
+            .zip(ObjectHeaderIter::new(&body, raw_headers.as_slice()))
+        {
+            match header.name() {
+                b"object" => {
+                    let (_, object_id) = all_consuming(ObjectId::parse).parse(header.value())?;
+                    object = Some(object_id);
+                }
+                b"type" => {
+                    tag_type = match header.value() {
+                        b"commit" => Some(TagType::Commit),
+                        b"blob" => Some(TagType::Blob),
+                        b"tree" => Some(TagType::Tree),
+                        b"tag" => Some(TagType::Tag),
+                        _ => None,
+                    };
+                }
+                b"tag" => tag = Some(header.value()),
+                b"tagger" => {
+                    let (_, (name, email, date)) =
+                        all_consuming(parse_author_committer_tagger).parse(header.value())?;
+                    tagger_name = Some(name);
+                    tagger_email = Some(email);
+                    tag_date = Some(date);
+                }
+                _ => {
+                    additional_headers.push(range_header.clone());
                 }
             }
-            let f = move || -> Option<Tag> {
-                Some(Tag {
-                    id,
-                    target: object?,
-                    tag_type: tag_type?,
-                    name: tag?,
-                    tagger_name,
-                    tagger_email,
-                    tag_date,
-                    message: message.to_vec(),
-                    additional_headers,
-                })
-            };
-            match f() {
-                None => Err(nom::Err::Failure(ParseError::MissingFields)),
-                Some(tag) => Ok((&[][..], tag)),
-            }
         }
+        Ok(Tag {
+            id,
+            target: f(object)?,
+            tag_type: f(tag_type)?,
+            name: body.subslice_range_stable(f(tag)?).unwrap(),
+            tagger_name: tagger_name.map(|t| body.subslice_range_stable(t).unwrap()),
+            tagger_email: tagger_email.map(|t| body.subslice_range_stable(t).unwrap()),
+            tag_date,
+            message: body.subslice_range_stable(message).unwrap(),
+            additional_headers,
+            body,
+        })
     }
 }
 
@@ -158,23 +157,20 @@ tagger a-user <an-email-address> 1774822895 +0100
 
 a message
 ";
-        let (_, tag) = Tag::parser(ZERO_OID).parse(data).unwrap();
+        let tag = Tag::parse(ZERO_OID, data.to_vec()).unwrap();
         assert_eq!(
             tag.target,
             ObjectId::new(hex!("eedeffb6da16ddc3fb61b2255a8259cacc045691"),)
         );
         assert_eq!(tag.tag_type, TagType::Commit);
-        assert_eq!(tag.name, b"annotated-tag");
-        assert_eq!(tag.tagger_name.as_deref(), Some(b"a-user".as_slice()));
-        assert_eq!(
-            tag.tagger_email.as_deref(),
-            Some(b"an-email-address".as_slice())
-        );
+        assert_eq!(tag.name(), b"annotated-tag");
+        assert_eq!(tag.tagger_name(), Some(b"a-user".as_slice()));
+        assert_eq!(tag.tagger_email(), Some(b"an-email-address".as_slice()));
         assert_eq!(
             tag.tag_date,
             Some(DateTime::parse_from_rfc3339("2026-03-29T23:21:35+01:00").unwrap())
         );
-        assert_eq!(&tag.message, b"a message\n");
+        assert_eq!(&tag.message(), b"a message\n");
     }
 
     #[test]
@@ -186,7 +182,7 @@ tagger a-user <an-email-address> 1774826002 +0100
 
 a blob
 ";
-        let (_, tag) = Tag::parser(ZERO_OID).parse(data).unwrap();
+        let tag = Tag::parse(ZERO_OID, data.to_vec()).unwrap();
         assert_eq!(tag.tag_type, TagType::Blob);
     }
 
@@ -199,7 +195,7 @@ tagger a-user <an-email-address> 1774826187 +0100
 
 a tree
 ";
-        let (_, tag) = Tag::parser(ZERO_OID).parse(data).unwrap();
+        let tag = Tag::parse(ZERO_OID, data.to_vec()).unwrap();
         assert_eq!(tag.tag_type, TagType::Tree);
     }
 
@@ -212,7 +208,7 @@ tagger a-user <an-email-address> 1774826312 +0100
 
 a tag
 ";
-        let (_, tag) = Tag::parser(ZERO_OID).parse(data).unwrap();
+        let tag = Tag::parse(ZERO_OID, data.to_vec()).unwrap();
         assert_eq!(tag.tag_type, TagType::Tag);
     }
 }

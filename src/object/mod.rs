@@ -9,16 +9,15 @@ use crate::{
     traits::AllGenerics,
 };
 use accessory::Accessors;
-use alloc::{format, vec::Vec};
+use alloc::format;
 use chrono::{DateTime, FixedOffset};
 use nom::{
     Parser,
     branch::alt,
-    bytes::complete::{tag, take, take_till, take_until},
-    character::complete::{char, hex_digit0, i32, i64, newline, not_line_ending, space1},
-    combinator::{all_consuming, not, peek},
-    multi::many0,
-    sequence::{delimited, preceded, terminated},
+    bytes::complete::{tag, take, take_until},
+    character::complete::{char, hex_digit0, i32, i64},
+    combinator::all_consuming,
+    sequence::terminated,
 };
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -196,29 +195,29 @@ impl Object {
     }
 
     pub(crate) async fn lookup<G: AllGenerics>(repo: &Repo<G>, id: ObjectId) -> GResult<Self> {
-        let RawObject {
-            object_type,
-            body,
-            id,
-        } = lookup(repo, id)
+        let RawObject { object_type, body } = lookup(repo, id)
             .await?
             .ok_or_else(|| Error::MissingObject(id))?;
 
-        if object_type == ObjectType::Commit {
-            return Ok(Object::Commit(
+        let object = match object_type {
+            ObjectType::Commit => Object::Commit(
                 Commit::parse(id, body)
                     .map_err(InternalObjectError::from)
                     .map_err(annotate_with_object_id(id))?,
-            ));
-        }
+            ),
+            ObjectType::Tag => Object::Tag(
+                Tag::parse(id, body)
+                    .map_err(InternalObjectError::from)
+                    .map_err(annotate_with_object_id(id))?,
+            ),
+            ObjectType::Blob => Object::Blob(Blob::new(id, body)),
+            ObjectType::Tree => Object::Tree(
+                Tree::parse(id, body)
+                    .map_err(InternalObjectError::from)
+                    .map_err(annotate_with_object_id(id))?,
+            ),
+        };
 
-        let (_, object) = Self::parser(id, object_type)
-            .parse(body.as_ref())
-            .map_err(|e| match e {
-                nom::Err::Incomplete(_) => unreachable!(),
-                nom::Err::Error(e) | nom::Err::Failure(e) => InternalObjectError::from(e),
-            })
-            .map_err(annotate_with_object_id(id))?;
         Ok(object)
     }
 
@@ -230,63 +229,6 @@ impl Object {
             .await?
             .ok_or_else(|| Error::MissingObject(id))
     }
-
-    pub(crate) fn parser<'a>(
-        id: ObjectId,
-        object_type: ObjectType,
-    ) -> impl Fn(&'a [u8]) -> ParseResult<&'a [u8], Self> {
-        move |body: &[u8]| {
-            let (_, object) = match object_type {
-                ObjectType::Commit => todo!(),
-                ObjectType::Tag => all_consuming(Tag::parser(id)).map(Self::Tag).parse(body)?,
-                ObjectType::Tree => all_consuming(Tree::parser(id))
-                    .map(Self::Tree)
-                    .parse(body)?,
-                ObjectType::Blob => (&[][..], Self::Blob(Blob::new(id, body.to_vec()))),
-            };
-            Ok((&[][..], object))
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Accessors)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct ObjectHeaderOwned {
-    #[access(get(ty(&[u8])))]
-    #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
-    name: Vec<u8>,
-
-    #[access(get(ty(&[u8])))]
-    #[cfg_attr(feature = "serde", serde(with = "crate::serde::utf8"))]
-    value: Vec<u8>,
-}
-
-fn parse_object_headers(input: &[u8]) -> ParseResult<&[u8], Vec<ObjectHeaderOwned>> {
-    let header = (
-        delimited(peek(not(newline)), take_till(|c| c == b' '), char(' ')),
-        terminated(
-            (
-                not_line_ending,
-                many0(preceded((newline, space1), not_line_ending)),
-            ),
-            newline,
-        ),
-    );
-    let mut p = terminated(many0(header), newline);
-    let (rest, raw_headers) = p.parse(input)?;
-    let mut headers: Vec<ObjectHeaderOwned> = Vec::new();
-    for (name, (first_line, continuation_lines)) in raw_headers {
-        let mut full_line = first_line.to_vec();
-        for line in continuation_lines {
-            full_line.push(b' ');
-            full_line.extend_from_slice(line);
-        }
-        headers.push(ObjectHeaderOwned {
-            name: name.to_vec(),
-            value: full_line,
-        });
-    }
-    Ok((rest, headers))
 }
 
 #[allow(clippy::type_complexity)]
@@ -320,6 +262,17 @@ macro_rules! range_get {
     };
 }
 pub(crate) use range_get;
+
+macro_rules! range_get_option {
+    ($field:ident, $source:ident) => {
+        pub fn $field(&self) -> Option<&[u8]> {
+            self.$field
+                .as_ref()
+                .map(|range| &self.$source[range.clone()])
+        }
+    };
+}
+pub(crate) use range_get_option;
 
 #[cfg(test)]
 mod tests {

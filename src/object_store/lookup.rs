@@ -77,11 +77,7 @@ pub(crate) async fn lookup<G: AllGenerics>(
     let body = reconstruct_deltified_object_from_chain(&mut indexed_pack, &chain, &final_object)
         .await
         .map_err(annotate_with_object_id(id))?;
-    Ok(Some(RawObject {
-        object_type,
-        id,
-        body,
-    }))
+    Ok(Some(RawObject { object_type, body }))
 }
 
 pub(crate) async fn find_packed_object<'p, G: AllGenerics>(
