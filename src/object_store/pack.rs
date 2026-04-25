@@ -349,7 +349,11 @@ mod tests {
             cache::IndexCache,
             lookup::{find_packed_object, lookup},
         },
-        test::helpers::{make_basic_repo, make_packfile_repo, make_similar_commits},
+        repo::RepoConfig,
+        test::{
+            helpers::{make_basic_repo, make_packfile_repo, make_similar_commits},
+            impls::TestGenerics,
+        },
     };
     use futures::executor::block_on;
     use hex_literal::hex;
@@ -432,7 +436,7 @@ a tag
         make_similar_commits(&test_repo).unwrap();
         test_repo.run_git(["gc"]).unwrap();
         let repo = test_repo.repo();
-        let cache = block_on(IndexCache::new(&repo.pack_dir)).unwrap();
+        let cache = block_on(IndexCache::new(&repo.pack_dir, &RepoConfig::default())).unwrap();
         let (mut pack, offset) = block_on(find_packed_object(
             &repo,
             &cache,
@@ -458,7 +462,7 @@ a tag
         make_similar_commits(&test_repo).unwrap();
         test_repo.run_git(["gc"]).unwrap();
         let repo = test_repo.repo();
-        let cache = block_on(IndexCache::new(&repo.pack_dir)).unwrap();
+        let cache = block_on(IndexCache::new(&repo.pack_dir, &RepoConfig::default())).unwrap();
         let (mut pack, offset) = block_on(find_packed_object(
             &repo,
             &cache,
@@ -595,5 +599,30 @@ a tag
         }
         assert_eq!(raw_object.body.len(), expected.len());
         assert_eq!(raw_object.body, expected);
+    }
+
+    #[test]
+    fn read_object_no_offset_cache() {
+        let test_repo = make_packfile_repo().unwrap();
+        let repo = block_on(
+            RepoConfig::default()
+                .index_offset_cache_max(0)
+                .open::<TestGenerics>(test_repo.git_dir()),
+        )
+        .unwrap();
+        let raw_object = block_on(lookup(
+            &repo,
+            ObjectId::from_hex(b"78dc5b70bd81aa46ec7dfce87a69826e354a916b").unwrap(),
+        ))
+        .unwrap()
+        .unwrap();
+        assert_eq!(raw_object.object_type, ObjectType::Commit);
+        let expected_body = b"tree 3a4df67dd7fd7cb3ca82d9896dbdd28053d39bdb
+author a user <an-email-address> 946684800 +0000
+committer a user <an-email-address> 946684800 +0000
+
+a commit
+";
+        assert_eq!(raw_object.body, expected_body);
     }
 }

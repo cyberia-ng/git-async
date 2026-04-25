@@ -43,17 +43,22 @@ pub(crate) struct ShortOffsetTable {
 }
 
 impl ShortOffsetTable {
-    pub(crate) async fn load<F: File>(file: &mut F, total_objects: u32) -> GResult<Self> {
-        let offset_table = Offset(
+    pub(crate) fn offset_of_table(total_objects: u32) -> Offset {
+        Offset(
             4 // header
             + 4 // version
             + 256 * 4 // fanout
             + u64::from(total_objects) * 20 // object IDs
             + u64::from(total_objects) * 4, // CRCs
-        );
+        )
+    }
+
+    pub(crate) async fn load<F: File>(file: &mut F, total_objects: u32) -> GResult<Self> {
         let table_size: usize = usize::try_from(total_objects).unwrap() * 4;
         let mut table = vec![0u8; table_size];
-        let read_size = file.read_segment(offset_table, &mut table).await?;
+        let read_size = file
+            .read_segment(Self::offset_of_table(total_objects), &mut table)
+            .await?;
         if read_size < table_size {
             return Err(Error::CorruptIndexFile);
         }
@@ -69,7 +74,7 @@ impl ShortOffsetTable {
 
 pub(crate) async fn find_object_in_pack_index<F: File>(
     fanout: &FanoutTable,
-    offsets: &ShortOffsetTable,
+    offsets: Option<&ShortOffsetTable>,
     idx_file: &mut F,
     id: ObjectId,
 ) -> GResult<Option<Offset>> {
@@ -124,12 +129,20 @@ async fn find_object_idx<F: File>(
 }
 
 async fn get_obj_packfile_offset<F: File>(
-    offset_table: &ShortOffsetTable,
+    offset_table: Option<&ShortOffsetTable>,
     idx_file: &mut F,
     obj_idx: u32,
     total_objects: u32,
 ) -> GResult<Offset> {
-    let packfile_offset_short = offset_table.entry(obj_idx);
+    let packfile_offset_short = if let Some(offset_table) = offset_table {
+        offset_table.entry(obj_idx)
+    } else {
+        let entry_offset =
+            ShortOffsetTable::offset_of_table(total_objects) + u64::from(obj_idx) * 4;
+        let mut buf = [0u8; 4];
+        idx_file.read_segment(entry_offset, &mut buf).await?;
+        u32::from_be_bytes(buf)
+    };
     if packfile_offset_short & 0x8000_0000 != 0 {
         let fanout: Offset = Offset(0x8);
         let object_ids: Offset = fanout + 4 * 256;
@@ -206,7 +219,7 @@ mod tests {
         .unwrap()
         .unwrap();
         block_on(get_obj_packfile_offset(
-            &offsets,
+            Some(&offsets),
             &mut idx_file,
             object_idx,
             fanout.total_objects(),
@@ -274,7 +287,7 @@ mod tests {
         .unwrap()
         .unwrap();
         let pack_offset = block_on(get_obj_packfile_offset(
-            &offsets,
+            Some(&offsets),
             &mut idx_file,
             object_offset,
             fanout.total_objects(),

@@ -1,5 +1,5 @@
 use crate::{
-    repo::Repo,
+    repo::{Repo, RepoConfig},
     test::{
         directory::{TestRepoDirectory, TestRepoFile},
         impls::TestGenerics,
@@ -103,7 +103,7 @@ impl TestRepo {
     }
 
     pub fn repo(&self) -> Repo<TestGenerics> {
-        block_on(Repo::new(self.git_dir())).unwrap()
+        block_on(RepoConfig::default().open(self.git_dir())).unwrap()
     }
 
     pub fn commit(

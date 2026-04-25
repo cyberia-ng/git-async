@@ -27,6 +27,7 @@ mod subslice_range;
 pub mod traits;
 
 pub use repo::Repo;
+pub use repo::RepoConfig;
 
 #[cfg(test)]
 mod test;

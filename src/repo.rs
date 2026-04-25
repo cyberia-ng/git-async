@@ -9,6 +9,31 @@ use crate::{
 use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
 
+pub struct RepoConfig {
+    pub(crate) index_offset_cache_max: usize,
+}
+impl RepoConfig {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn index_offset_cache_max(&mut self, size: usize) -> &mut Self {
+        self.index_offset_cache_max = size;
+        self
+    }
+
+    pub async fn open<G: AllGenerics>(&self, git_dir: G::Directory) -> GResult<Repo<G>> {
+        Repo::new(git_dir, self).await
+    }
+}
+impl Default for RepoConfig {
+    fn default() -> Self {
+        Self {
+            index_offset_cache_max: 64 * 1024 * 1024,
+        }
+    }
+}
+
 /// A handle to a Git repository
 ///
 /// It is generic over the implementation of filesystem operations.
@@ -20,13 +45,13 @@ pub struct Repo<G: AllGenerics> {
 
 impl<G: AllGenerics> Repo<G> {
     /// Open the repository located at `git_dir`.
-    pub async fn new(git_dir: G::Directory) -> GResult<Self> {
+    pub async fn new(git_dir: G::Directory, config: &RepoConfig) -> GResult<Self> {
         let pack_dir = git_dir
             .open_subdir(b"objects")
             .await?
             .open_subdir(b"pack")
             .await?;
-        let index_cache = IndexCache::new(&pack_dir).await?;
+        let index_cache = IndexCache::new(&pack_dir, config).await?;
         Ok(Repo {
             git_dir,
             pack_dir,
