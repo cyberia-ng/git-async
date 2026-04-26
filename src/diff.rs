@@ -30,6 +30,10 @@ impl Path {
     pub fn as_slice(&self) -> &[u8] {
         self.0.as_slice()
     }
+
+    pub fn inner(self) -> Vec<u8> {
+        self.0
+    }
 }
 
 fn join(path: Option<&Path>, component: &[u8]) -> Path {
