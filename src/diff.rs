@@ -1,5 +1,3 @@
-use core::convert::Infallible;
-
 use crate::{
     Repo,
     error::{Error, GResult},
@@ -9,6 +7,7 @@ use crate::{
 use accessory::Accessors;
 use alloc::format;
 use alloc::{string::String, vec::Vec};
+use core::convert::Infallible;
 use similar::{TextDiff, TextDiffConfig};
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -143,8 +142,17 @@ pub struct TreeDiff {
 }
 
 impl TreeDiff {
-    #[allow(clippy::too_many_lines)]
     pub async fn new<G: AllGenerics>(repo: &Repo<G>, left: &Tree, right: &Tree) -> GResult<Self> {
+        Self::new_cancelable(repo, left, right, async || false).await
+    }
+
+    #[allow(clippy::too_many_lines)]
+    pub async fn new_cancelable<G: AllGenerics>(
+        repo: &Repo<G>,
+        left: &Tree,
+        right: &Tree,
+        mut cancel: impl AsyncFnMut() -> bool,
+    ) -> GResult<Self> {
         if left.id() == right.id() {
             return Ok(Self {
                 entries: Vec::new(),
@@ -161,6 +169,9 @@ impl TreeDiff {
             // - left and right have different IDs
             debug_assert!(left.is_some() || right.is_some());
             debug_assert!(left.as_ref().map(Tree::id) != right.as_ref().map(Tree::id));
+            if cancel().await {
+                return Err(Error::DiffCanceled);
+            }
             let (left, right) = match (left, right) {
                 (Some(left), Some(right)) => (left, right),
                 (Some(left), None) => {
@@ -289,13 +300,22 @@ impl TreeDiff {
         Ok(Self { entries: out })
     }
 
-    pub async fn to_text_diff<G: AllGenerics>(
+    pub async fn to_text_diff<G: AllGenerics>(&self, repo: &Repo<G>) -> GResult<Diff> {
+        self.to_text_diff_full(repo, &TextDiffConfig::default(), async || false)
+            .await
+    }
+
+    pub async fn to_text_diff_full<G: AllGenerics>(
         &self,
         repo: &Repo<G>,
-        config: TextDiffConfig,
+        config: &TextDiffConfig,
+        mut cancel: impl AsyncFnMut() -> bool,
     ) -> GResult<Diff> {
         let mut out: Vec<_> = Vec::with_capacity(self.entries.len());
         for entry in &self.entries {
+            if cancel().await {
+                return Err(Error::DiffCanceled);
+            }
             let entry = entry.resolve(repo, config.clone()).await?;
             out.push(entry);
         }
@@ -312,7 +332,7 @@ async fn tree<G: AllGenerics>(repo: &Repo<G>, id: ObjectId) -> GResult<Tree> {
 }
 
 impl DiffEntry<(ObjectId, ObjectId)> {
-    pub(crate) async fn resolve<G: AllGenerics>(
+    pub async fn resolve<G: AllGenerics>(
         &self,
         repo: &Repo<G>,
         config: TextDiffConfig,

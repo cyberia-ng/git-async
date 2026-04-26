@@ -52,6 +52,7 @@ pub enum Error {
     UnexpectedThinPack,
     NotAnnotatedWithRepo,
     UnexpectedObjectType(UnexpectedObjectType),
+    DiffCanceled,
 }
 
 impl From<UnexpectedObjectType> for Error {
