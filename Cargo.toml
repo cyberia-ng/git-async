@@ -21,6 +21,7 @@ futures = "0.3.32"
 hex-literal = "1.1.0"
 rand_core = "0.10.0"
 rand_pcg = "0.10.1"
+rusty-hook = "0.11.2"
 tempfile = "3.27.0"
 
 [features]
