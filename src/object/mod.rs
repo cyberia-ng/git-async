@@ -1,6 +1,12 @@
+//! A module for working with git objects
+//!
+//! This module contains data types for all git objects. Objects are acquired
+//! from a [`Repo`] by looking them up using their [`ObjectId`], or from one of
+//! the `lookup_*` family of methods on existing objects.
+
 use crate::{
     error::{Error, GResult, InternalObjectError, UnexpectedObjectType, annotate_with_object_id},
-    file_system::FSGenerics,
+    file_system::FileSystem,
     object_store::{
         RawObject,
         lookup::{lookup, lookup_size_type},
@@ -28,20 +34,26 @@ mod tree;
 
 pub use crate::object::blob::Blob;
 pub use crate::object::commit::Commit;
-pub use crate::object::tag::{Tag, TagType};
-pub use crate::object::tree::{Tree, TreeEntry, TreeEntryType};
+pub use crate::object::header::{ObjectHeader, ObjectHeaderIter};
+pub use crate::object::tag::Tag;
+pub use crate::object::tree::{Tree, TreeEntry, TreeEntryIter, TreeEntryType};
 pub use crate::object_store::{ObjectSize, ObjectType};
 
+/// The ID of a git object
+///
+/// `rgit` only supports SHA-1 repositories, so this is always 20 bytes or 40
+/// hex characters
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Accessors)]
 pub struct ObjectId {
+    /// The object ID as an array of bytes
     #[access(get)]
-    pub(crate) id: [u8; 20],
+    pub(crate) bytes: [u8; 20],
 }
 
 impl alloc::fmt::Display for ObjectId {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut chars = [0u8; 40];
-        hex::encode_to_slice(self.id, &mut chars).unwrap();
+        hex::encode_to_slice(self.bytes, &mut chars).unwrap();
         write!(f, "{}", str::from_utf8(&chars).unwrap())
     }
 }
@@ -53,12 +65,21 @@ impl alloc::fmt::Debug for ObjectId {
 }
 
 impl ObjectId {
-    pub const fn new(id: [u8; 20]) -> Self {
-        Self { id }
+    /// Construct an [`ObjectId`] from an array of bytes.
+    pub const fn from_bytes(id: [u8; 20]) -> Self {
+        Self { bytes: id }
     }
 
-    pub const fn zero() -> Self {
-        Self { id: [0u8; 20] }
+    /// Construct an [`ObjectId`] from a hex (byte)string.
+    ///
+    /// Returns `None` if the provided string was not 40 hexadecimal characters.
+    pub fn from_hex(s: &[u8]) -> Option<Self> {
+        let (_, oid) = all_consuming(Self::parse).parse(s).ok()?;
+        Some(oid)
+    }
+
+    pub(crate) const fn zero() -> Self {
+        Self { bytes: [0u8; 20] }
     }
 
     pub(crate) fn parse(input: &[u8]) -> ParseResult<&[u8], Self> {
@@ -67,26 +88,29 @@ impl ObjectId {
             .map_res(|hex_str| {
                 let mut buf = [0u8; 20];
                 hex::decode_to_slice(hex_str, &mut buf)?;
-                Ok::<ObjectId, hex::FromHexError>(ObjectId::new(buf))
+                Ok::<ObjectId, hex::FromHexError>(ObjectId::from_bytes(buf))
             })
             .parse(input)
     }
-
-    pub fn from_hex(s: &[u8]) -> Option<Self> {
-        let (_, oid) = all_consuming(Self::parse).parse(s).ok()?;
-        Some(oid)
-    }
 }
 
+/// A git object
+///
+/// This type encapsulates the four possible types of git object.
 #[derive(Clone)]
 pub enum Object {
+    #[expect(missing_docs)]
     Commit(Commit),
+    #[expect(missing_docs)]
     Tree(Tree),
+    #[expect(missing_docs)]
     Tag(Tag),
+    #[expect(missing_docs)]
     Blob(Blob),
 }
 
 impl Object {
+    /// The ID of the object
     pub fn id(&self) -> ObjectId {
         use Object::*;
         match self {
@@ -97,6 +121,7 @@ impl Object {
         }
     }
 
+    /// Get the object type as a plain (fieldless) enum.
     pub fn object_type(&self) -> ObjectType {
         use Object::*;
         match self {
@@ -107,6 +132,9 @@ impl Object {
         }
     }
 
+    /// Coerce the object to a [`Commit`].
+    ///
+    /// Returns `Err` if the object was not a commit.
     pub fn commit(self) -> Result<Commit, UnexpectedObjectType> {
         use Object::*;
         match self {
@@ -119,6 +147,9 @@ impl Object {
         }
     }
 
+    /// Coerce the object to a [`Tag`].
+    ///
+    /// Returns `Err` if the object was not a tag.
     pub fn tag(self) -> Result<Tag, UnexpectedObjectType> {
         use Object::*;
         match self {
@@ -131,6 +162,9 @@ impl Object {
         }
     }
 
+    /// Coerce the object to a [`Tree`]
+    ///
+    /// Returns `Err` if the object was not a tree.
     pub fn tree(self) -> Result<Tree, UnexpectedObjectType> {
         use Object::*;
         match self {
@@ -143,6 +177,9 @@ impl Object {
         }
     }
 
+    /// Coerce the object to a [`Blob`]
+    ///
+    /// Returns `Err` if the object was not a blob.
     pub fn blob(self) -> Result<Blob, UnexpectedObjectType> {
         use Object::*;
         match self {
@@ -155,7 +192,8 @@ impl Object {
         }
     }
 
-    pub async fn peel_to_commit<G: FSGenerics>(&self, repo: &Repo<G>) -> GResult<Option<Commit>> {
+    /// Peel the object to a [`Commit`], if possible.
+    pub async fn peel_to_commit<G: FileSystem>(&self, repo: &Repo<G>) -> GResult<Option<Commit>> {
         use Object::*;
         let mut obj: Object = self.clone();
         loop {
@@ -170,7 +208,8 @@ impl Object {
         }
     }
 
-    pub async fn peel_to_tree<G: FSGenerics>(&self, repo: &Repo<G>) -> GResult<Option<Tree>> {
+    /// Peel the object to a [`Tree`], if possible.
+    pub async fn peel_to_tree<G: FileSystem>(&self, repo: &Repo<G>) -> GResult<Option<Tree>> {
         use Object::*;
         let mut obj: Object = self.clone();
         loop {
@@ -189,7 +228,7 @@ impl Object {
         }
     }
 
-    pub(crate) async fn lookup<G: FSGenerics>(repo: &Repo<G>, id: ObjectId) -> GResult<Self> {
+    pub(crate) async fn lookup<G: FileSystem>(repo: &Repo<G>, id: ObjectId) -> GResult<Self> {
         let RawObject { object_type, body } = lookup(repo, id)
             .await?
             .ok_or_else(|| Error::MissingObject(id))?;
@@ -216,7 +255,7 @@ impl Object {
         Ok(object)
     }
 
-    pub(crate) async fn lookup_size_type<G: FSGenerics>(
+    pub(crate) async fn lookup_size_type<G: FileSystem>(
         repo: &Repo<G>,
         id: ObjectId,
     ) -> GResult<(ObjectSize, ObjectType)> {
@@ -248,26 +287,6 @@ fn parse_author_committer_tagger(
     )
         .parse(input)
 }
-
-macro_rules! range_get {
-    ($field:ident, $source:ident) => {
-        pub fn $field(&self) -> &[u8] {
-            &self.$source[self.$field.clone()]
-        }
-    };
-}
-pub(crate) use range_get;
-
-macro_rules! range_get_option {
-    ($field:ident, $source:ident) => {
-        pub fn $field(&self) -> Option<&[u8]> {
-            self.$field
-                .as_ref()
-                .map(|range| &self.$source[range.clone()])
-        }
-    };
-}
-pub(crate) use range_get_option;
 
 #[cfg(test)]
 mod tests {

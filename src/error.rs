@@ -1,5 +1,7 @@
+//! A module for errors which may occur during the use of `rgit`
+
 use crate::{
-    file_system::{FilesystemError, Offset},
+    file_system::FileSystemError,
     object::{ObjectId, ObjectType},
     parsing::ParseError,
     reference::RefName,
@@ -8,29 +10,34 @@ use accessory::Accessors;
 use alloc::vec::Vec;
 use miniz_oxide::inflate::TINFLStatus;
 
+#[expect(missing_docs)]
 pub type GResult<T> = core::result::Result<T, Error>;
 
+#[expect(missing_docs)]
 #[derive(Debug, Accessors)]
 pub struct UnexpectedObjectType {
-    #[access(get(cp))]
-    pub(crate) id: ObjectId,
-    #[access(get(cp))]
-    pub(crate) expected: ObjectType,
-    #[access(get(cp))]
-    pub(crate) received: ObjectType,
+    pub id: ObjectId,
+    pub expected: ObjectType,
+    pub received: ObjectType,
 }
 
+#[expect(missing_docs)]
+#[non_exhaustive]
 #[derive(Debug)]
 pub enum Error {
-    FileSystem(FilesystemError),
+    FileSystem(FileSystemError),
     PathError(Vec<u8>),
     LooseObjectDecompressError {
+        #[expect(missing_docs)]
         id: ObjectId,
+        #[expect(missing_docs)]
         status: TINFLStatus,
     },
     PackObjectDecompressError {
+        #[expect(missing_docs)]
         id: ObjectId,
-        error: PackDecompressError,
+        #[expect(missing_docs)]
+        status: TINFLStatus,
     },
     FromHexError(hex::FromHexError),
     UnsupportedIndexVersion,
@@ -43,7 +50,9 @@ pub enum Error {
     MalformedPackObject(ObjectId),
     MalformedObject(ObjectId),
     ObjectParseError {
+        #[expect(missing_docs)]
         id: ObjectId,
+        #[expect(missing_docs)]
         snippet: Vec<u8>,
     },
     ObjectMissingRequiredFields(ObjectId),
@@ -61,8 +70,8 @@ impl From<UnexpectedObjectType> for Error {
     }
 }
 
-impl From<FilesystemError> for Error {
-    fn from(value: FilesystemError) -> Self {
+impl From<FileSystemError> for Error {
+    fn from(value: FileSystemError) -> Self {
         Self::FileSystem(value)
     }
 }
@@ -80,7 +89,7 @@ pub(crate) enum InternalObjectError {
     ParseError { snippet: Vec<u8> },
     MissingFields,
     MalformedPackObject,
-    PackObjectDecompressError(PackDecompressError),
+    PackObjectDecompressError(TINFLStatus),
 }
 
 pub(crate) type IResult<T> = core::result::Result<T, InternalObjectError>;
@@ -102,8 +111,8 @@ impl From<ParseError> for InternalObjectError {
     }
 }
 
-impl From<FilesystemError> for InternalObjectError {
-    fn from(value: FilesystemError) -> Self {
+impl From<FileSystemError> for InternalObjectError {
+    fn from(value: FileSystemError) -> Self {
         Self::ExternalError(value.into())
     }
 }
@@ -115,16 +124,8 @@ pub(crate) fn annotate_with_object_id(id: ObjectId) -> impl Fn(InternalObjectErr
         InternalObjectError::MalformedPackObject => Error::MalformedPackObject(id),
         InternalObjectError::ParseError { snippet } => Error::ObjectParseError { id, snippet },
         InternalObjectError::MissingFields => Error::ObjectMissingRequiredFields(id),
-        InternalObjectError::PackObjectDecompressError(error) => {
-            Error::PackObjectDecompressError { id, error }
+        InternalObjectError::PackObjectDecompressError(status) => {
+            Error::PackObjectDecompressError { id, status }
         }
     }
-}
-
-#[derive(Debug)]
-pub struct PackDecompressError {
-    pub input_position: usize,
-    pub output_position: usize,
-    pub pack_offset: Offset,
-    pub status: TINFLStatus,
 }

@@ -1,6 +1,14 @@
+//! A module for working with git refs
+//!
+//! A git ref is a file which points to an object or to another ref.
+//!
+//! To look up a ref, first construct a [`RefName`] and then use the
+//! [`Repo::lookup_ref`] method. A list of all refs in the repository can also
+//! be accessed using the [`Repo::ref_names`] method.
+
 use crate::{
     error::{Error, GResult},
-    file_system::{Directory, FSGenerics, File, FilesystemError},
+    file_system::{Directory, File, FileSystem, FileSystemError},
     object::{Commit, ObjectId, Tree},
     parsing::ParseResult,
     repo::Repo,
@@ -17,14 +25,17 @@ use nom::{
     sequence::{delimited, preceded, terminated},
 };
 
+/// The name of a git ref
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub enum RefName {
+    /// The head of a repo, which is called `HEAD` by git.
     Head,
+    /// A non-HEAD ref such as `v1.7.0` or `origin/main`.
     Ref(Vec<u8>),
 }
 
 impl RefName {
-    pub(crate) async fn open_loose_ref<G: FSGenerics>(
+    pub(crate) async fn open_loose_ref<G: FileSystem>(
         &self,
         repo: &Repo<G>,
     ) -> GResult<Option<G::File>> {
@@ -42,36 +53,48 @@ impl RefName {
             .ok_or_else(|| Error::RefNotFound(self.clone()))?;
         for component in components {
             dir = match dir.open_subdir(component).await {
-                Err(FilesystemError::NotFound(_)) => return Ok(None),
+                Err(FileSystemError::NotFound(_)) => return Ok(None),
                 Err(e) => return Err(e.into()),
                 Ok(dir) => dir,
             };
         }
         match dir.open_file(file_name).await {
-            Err(FilesystemError::NotFound(_)) => Ok(None),
+            Err(FileSystemError::NotFound(_)) => Ok(None),
             Err(e) => Err(e.into()),
             Ok(file) => Ok(Some(file)),
         }
     }
 }
 
+/// The contents of a git ref
 #[derive(Accessors, Clone)]
 pub struct Ref {
+    /// The name of the ref
     #[access(get)]
     name: RefName,
 
+    /// The target of the ref
+    ///
+    /// Refs can be either direct (pointing to an object) or symbolic (pointing
+    /// to another ref).
     #[access(get)]
-    ref_type: RefType,
+    target: RefTarget,
 }
 
+/// The target of a git ref
+///
+/// Refs can be either direct (pointing to an object) or symbolic (pointing to
+/// another ref).
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub enum RefType {
+pub enum RefTarget {
+    /// A direct ref, pointing to an object
     Direct(ObjectId),
+    /// A symbolic ref, pointing to another ref
     Symbolic(RefName),
 }
 
 impl Ref {
-    pub(crate) async fn lookup<G: FSGenerics>(repo: &Repo<G>, name: &RefName) -> GResult<Ref> {
+    pub(crate) async fn lookup<G: FileSystem>(repo: &Repo<G>, name: &RefName) -> GResult<Ref> {
         let ref_type = {
             if let Some(reference) = lookup_loose_ref(repo, name).await? {
                 reference
@@ -82,7 +105,7 @@ impl Ref {
                     .into_iter()
                     .find(|(_, ref_name)| ref_name == name)
                 {
-                    RefType::Direct(object_id)
+                    RefTarget::Direct(object_id)
                 } else {
                     return Err(Error::RefNotFound(name.clone()));
                 }
@@ -90,43 +113,51 @@ impl Ref {
         };
         Ok(Self {
             name: name.clone(),
-            ref_type,
+            target: ref_type,
         })
     }
 
-    pub async fn resolve_object_id<G: FSGenerics>(&self, repo: &Repo<G>) -> GResult<ObjectId> {
+    /// Follow a chain of refs until a direct ref is obtained, and return the
+    /// object ID that it points to.
+    pub async fn resolve_object_id<G: FileSystem>(&self, repo: &Repo<G>) -> GResult<ObjectId> {
         let mut target: Ref = self.clone();
-        while let RefType::Symbolic(name) = target.ref_type {
+        while let RefTarget::Symbolic(name) = target.target {
             target = repo.lookup_ref(&name).await?;
         }
-        match target.ref_type {
-            RefType::Symbolic(_) => unreachable!(),
-            RefType::Direct(oid) => Ok(oid),
+        match target.target {
+            RefTarget::Symbolic(_) => unreachable!(),
+            RefTarget::Direct(oid) => Ok(oid),
         }
     }
 
-    pub async fn peel_to_commit<G: FSGenerics>(&self, repo: &Repo<G>) -> GResult<Option<Commit>> {
+    /// Peel the ref to a commit object.
+    ///
+    /// Returns `None` if the ref does not point to a commit object.
+    pub async fn peel_to_commit<G: FileSystem>(&self, repo: &Repo<G>) -> GResult<Option<Commit>> {
         let oid = self.resolve_object_id(repo).await?;
         let object = repo.lookup_object(oid).await?;
         object.peel_to_commit(repo).await
     }
 
-    pub async fn peel_to_tree<G: FSGenerics>(&self, repo: &Repo<G>) -> GResult<Option<Tree>> {
+    /// Peel the ref to a tree object.
+    ///
+    /// Returns `None` if the ref does not point to a commit or a tree object.
+    pub async fn peel_to_tree<G: FileSystem>(&self, repo: &Repo<G>) -> GResult<Option<Tree>> {
         let oid = self.resolve_object_id(repo).await?;
         let object = repo.lookup_object(oid).await?;
         object.peel_to_tree(repo).await
     }
 }
 
-impl RefType {
+impl RefTarget {
     pub(crate) fn parse_loose_ref(content: &[u8]) -> ParseResult<&[u8], Self> {
         all_consuming(terminated(not_line_ending, newline))
             .and_then(alt((
-                ObjectId::parse.map(RefType::Direct),
+                ObjectId::parse.map(RefTarget::Direct),
                 preceded(
                     tag("ref: refs/"),
                     take_till(|_| false)
-                        .map(|name: &[u8]| RefType::Symbolic(RefName::Ref(name.to_vec()))),
+                        .map(|name: &[u8]| RefTarget::Symbolic(RefName::Ref(name.to_vec()))),
                 ),
             )))
             .parse(content)
@@ -157,16 +188,16 @@ pub(crate) async fn read_packed_refs<F: File>(
     Ok(refs.into_iter().flatten().collect())
 }
 
-pub(crate) async fn lookup_loose_ref<G: FSGenerics>(
+pub(crate) async fn lookup_loose_ref<G: FileSystem>(
     repo: &Repo<G>,
     name: &RefName,
-) -> GResult<Option<RefType>> {
+) -> GResult<Option<RefTarget>> {
     let Some(mut ref_file) = name.open_loose_ref(repo).await? else {
         return Ok(None);
     };
     let ref_content = ref_file.read_all().await?;
     let (_, ref_type) =
-        RefType::parse_loose_ref(&ref_content).map_err(|_| Error::MalformedRef(name.clone()))?;
+        RefTarget::parse_loose_ref(&ref_content).map_err(|_| Error::MalformedRef(name.clone()))?;
     Ok(Some(ref_type))
 }
 
@@ -187,21 +218,21 @@ mod test {
         let test_repo = make_basic_repo().unwrap();
         let repo = test_repo.repo();
         let head = block_on(repo.head()).unwrap();
-        let head_target = match head.ref_type {
-            RefType::Direct(_) => panic!(),
-            RefType::Symbolic(name) => name,
+        let head_target = match head.target {
+            RefTarget::Direct(_) => panic!(),
+            RefTarget::Symbolic(name) => name,
         };
         let head_target = block_on(Ref::lookup(&repo, &head_target)).unwrap();
-        assert!(matches!(head_target.ref_type, RefType::Direct(_)));
+        assert!(matches!(head_target.target, RefTarget::Direct(_)));
     }
 
     #[test]
     fn parse_direct_ref() {
         let content = b"6121d0b97779278fcc32cc8a02754e7c588d9c18\n";
-        let (_, parsed) = RefType::parse_loose_ref(content).unwrap();
+        let (_, parsed) = RefTarget::parse_loose_ref(content).unwrap();
         assert_eq!(
             parsed,
-            RefType::Direct(ObjectId::new(hex!(
+            RefTarget::Direct(ObjectId::from_bytes(hex!(
                 "6121d0b97779278fcc32cc8a02754e7c588d9c18"
             )))
         );
@@ -210,10 +241,10 @@ mod test {
     #[test]
     fn parse_symbolic_ref() {
         let content = b"ref: refs/heads/main\n";
-        let (_, parsed) = RefType::parse_loose_ref(content).unwrap();
+        let (_, parsed) = RefTarget::parse_loose_ref(content).unwrap();
         assert_eq!(
             parsed,
-            RefType::Symbolic(RefName::Ref(b"heads/main".to_vec()))
+            RefTarget::Symbolic(RefName::Ref(b"heads/main".to_vec()))
         );
     }
 

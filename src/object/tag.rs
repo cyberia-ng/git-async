@@ -1,10 +1,10 @@
 use crate::{
     error::GResult,
-    file_system::FSGenerics,
+    file_system::FileSystem,
     object::{
-        Object, ObjectId,
+        Object, ObjectId, ObjectType,
         header::{ObjectHeaderIter, RangeObjectHeader},
-        parse_author_committer_tagger, range_get, range_get_option,
+        parse_author_committer_tagger,
     },
     parsing::ParseError,
     repo::Repo,
@@ -16,34 +16,34 @@ use chrono::{DateTime, FixedOffset};
 use core::ops::Range;
 use nom::{Parser, combinator::all_consuming};
 
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
-pub enum TagType {
-    Commit,
-    Blob,
-    Tree,
-    Tag,
-}
-
+/// A tag object
+///
+/// Git tags can be ref tags or tag objects; this is the latter.
 #[derive(Accessors, Clone)]
 pub struct Tag {
+    /// The [`ObjectId`] of the tag
     #[access(get(cp))]
     id: ObjectId,
 
+    /// The raw data in the object
     #[access(get(ty(&[u8])))]
     body: Vec<u8>,
 
+    /// The [`ObjectId`] the object pointed to by the tag
     #[access(get(cp))]
     target: ObjectId,
 
+    /// The type of the object pointed to by the tag
     #[allow(clippy::struct_field_names)]
     #[access(get(cp))]
-    tag_type: TagType,
+    tag_type: ObjectType,
 
     name: Range<usize>,
     tagger_name: Option<Range<usize>>,
     tagger_email: Option<Range<usize>>,
     message: Range<usize>,
 
+    /// The tag date, if it exists
     #[access(get(cp))]
     date: Option<DateTime<FixedOffset>>,
 
@@ -68,21 +68,45 @@ impl Ord for Tag {
 }
 
 impl Tag {
-    pub async fn lookup_target<G: FSGenerics>(&self, repo: &Repo<G>) -> GResult<Object> {
-        repo.lookup_object(self.target).await
+    /// The name of the tag
+    pub fn name(&self) -> &[u8] {
+        &self.body[self.name.clone()]
     }
 
-    range_get!(name, body);
-    range_get_option!(tagger_name, body);
-    range_get_option!(tagger_email, body);
-    range_get!(message, body);
+    /// The name of the tagger, if specified
+    pub fn tagger_name(&self) -> Option<&[u8]> {
+        self.tagger_name
+            .as_ref()
+            .map(|range| &self.body[range.clone()])
+    }
 
+    /// The email address of the tagger, if specified
+    pub fn tagger_email(&self) -> Option<&[u8]> {
+        self.tagger_email
+            .as_ref()
+            .map(|range| &self.body[range.clone()])
+    }
+
+    /// The message of the tag
+    pub fn message(&self) -> &[u8] {
+        &self.body[self.message.clone()]
+    }
+
+    /// Get an iterator over any additional headers in the tag object.
+    ///
+    /// Additional headers are those not parsed by `rgit`, e.g. `mergetag`.
     pub fn additional_headers(&self) -> ObjectHeaderIter<'_> {
         ObjectHeaderIter::new(self.body.as_slice(), self.additional_headers.as_slice())
     }
 
+    /// Wrap the [`Tag`] as a generic [`Object`].
     pub fn as_object(self) -> Object {
         Object::Tag(self)
+    }
+
+    /// Look up the target object of the tag using the provided [`Repo`].
+    pub async fn lookup_target<G: FileSystem>(&self, repo: &Repo<G>) -> GResult<Object> {
+        repo.lookup_object(self.target).await
     }
 
     pub(crate) fn parse(id: ObjectId, body: Vec<u8>) -> Result<Self, ParseError> {
@@ -91,7 +115,7 @@ impl Tag {
         }
         let (message, raw_headers) = RangeObjectHeader::parser(&body)?;
         let mut object: Option<ObjectId> = None;
-        let mut tag_type: Option<TagType> = None;
+        let mut tag_type: Option<ObjectType> = None;
         let mut tag: Option<&[u8]> = None;
         let mut tagger_name: Option<&[u8]> = None;
         let mut tagger_email: Option<&[u8]> = None;
@@ -108,10 +132,10 @@ impl Tag {
                 }
                 b"type" => {
                     tag_type = match header.value() {
-                        b"commit" => Some(TagType::Commit),
-                        b"blob" => Some(TagType::Blob),
-                        b"tree" => Some(TagType::Tree),
-                        b"tag" => Some(TagType::Tag),
+                        b"commit" => Some(ObjectType::Commit),
+                        b"blob" => Some(ObjectType::Blob),
+                        b"tree" => Some(ObjectType::Tree),
+                        b"tag" => Some(ObjectType::Tag),
                         _ => None,
                     };
                 }
@@ -148,7 +172,7 @@ mod tests {
     use super::*;
     use hex_literal::hex;
 
-    const ZERO_OID: ObjectId = ObjectId::new([0; 20]);
+    const ZERO_OID: ObjectId = ObjectId::from_bytes([0; 20]);
 
     #[test]
     fn parse_commit_tag() {
@@ -162,9 +186,9 @@ a message
         let tag = Tag::parse(ZERO_OID, data.to_vec()).unwrap();
         assert_eq!(
             tag.target,
-            ObjectId::new(hex!("eedeffb6da16ddc3fb61b2255a8259cacc045691"),)
+            ObjectId::from_bytes(hex!("eedeffb6da16ddc3fb61b2255a8259cacc045691"),)
         );
-        assert_eq!(tag.tag_type, TagType::Commit);
+        assert_eq!(tag.tag_type, ObjectType::Commit);
         assert_eq!(tag.name(), b"annotated-tag");
         assert_eq!(tag.tagger_name(), Some(b"a-user".as_slice()));
         assert_eq!(tag.tagger_email(), Some(b"an-email-address".as_slice()));
@@ -185,7 +209,7 @@ tagger a-user <an-email-address> 1774826002 +0100
 a blob
 ";
         let tag = Tag::parse(ZERO_OID, data.to_vec()).unwrap();
-        assert_eq!(tag.tag_type, TagType::Blob);
+        assert_eq!(tag.tag_type, ObjectType::Blob);
     }
 
     #[test]
@@ -198,7 +222,7 @@ tagger a-user <an-email-address> 1774826187 +0100
 a tree
 ";
         let tag = Tag::parse(ZERO_OID, data.to_vec()).unwrap();
-        assert_eq!(tag.tag_type, TagType::Tree);
+        assert_eq!(tag.tag_type, ObjectType::Tree);
     }
 
     #[test]
@@ -211,6 +235,6 @@ tagger a-user <an-email-address> 1774826312 +0100
 a tag
 ";
         let tag = Tag::parse(ZERO_OID, data.to_vec()).unwrap();
-        assert_eq!(tag.tag_type, TagType::Tag);
+        assert_eq!(tag.tag_type, ObjectType::Tag);
     }
 }

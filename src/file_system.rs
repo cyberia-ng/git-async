@@ -1,16 +1,53 @@
 //! Traits and error types for interacting with files and directories
 //!
 //! The purpose of this module is to specify what consumers of this library must
-//! implement in order for the filesystem calls in rgit to work. Consumers must
-//! implement the [`Directory`] and [`File`] traits, which are then used internally
-//! to navigate a git directory.
+//! implement in order for the filesystem calls in rgit to work.
 //!
-//! The simplest way of implementing these would be to use
-//! [`std::fs`], but this nullifies the async
-//! capabilities of this crate. If you are using Tokio for example, you should
-//! use primitives from [`tokio::fs`](https://docs.rs/tokio/latest/tokio/fs/).
-//! If you are using `rgit` in a browser, you may want to use the [web
-//! filesystem
+//! The [`FileSystem`] trait is a wrapper trait which has associated types for
+//! objects which implement [`File`] and [`Directory`]. The correct way to
+//! implement this is to use a zero-sized struct for the parent, and real
+//! objects for [`File`] and [`Directory`]. This structure is to avoid generic
+//! proliferation as much as possible.
+//!
+//! For example:
+//!
+//! ```
+//! # use rgit::file_system::{File, Directory, FileSystem, FileSystemError, Offset, DirEntry};
+//! struct MyFile {
+//!     /* path, handle, etc. */
+//! }
+//!
+//! impl File for MyFile {
+//!     /* methods */
+//!     # async fn read_all(&mut self) -> Result<Vec<u8>, FileSystemError> { unimplemented! () }
+//!     # async fn read_segment(&mut self, _: Offset, _: &mut [u8]) -> Result<usize, FileSystemError> { unimplemented! () }
+//! }
+//!
+//! struct MyDirectory {
+//!     /* path, handle, etc. */
+//! }
+//! # impl Clone for MyDirectory { fn clone(&self) -> Self { unimplemented!() } }
+//!
+//! impl Directory<MyFile> for MyDirectory {
+//!     /* methods */
+//!     # async fn open_subdir(&self, _: &[u8]) -> Result<Self, FileSystemError> { unimplemented!() }
+//!     # async fn list_dir(&self) -> Result<Vec<DirEntry>, FileSystemError> { unimplemented!() }
+//!     # async fn open_file(&self, _: &[u8]) -> Result<MyFile, FileSystemError> { unimplemented!() }
+//! }
+//!
+//! struct MyFS;
+//!
+//! impl FileSystem for MyFS {
+//!     type Directory = MyDirectory;
+//!     type File = MyFile;
+//! }
+//! ```
+//!
+//! The simplest way of implementing these would be to use [`std::fs`], but this
+//! nullifies the async capabilities of this crate. If you are using Tokio for
+//! example, you should use primitives from
+//! [`tokio::fs`](https://docs.rs/tokio/latest/tokio/fs/). If you are using
+//! `rgit` in a browser, you may want to use the [web filesystem
 //! API](https://developer.mozilla.org/en-US/docs/Web/API/File_System_API).
 
 use alloc::{boxed::Box, vec::Vec};
@@ -23,14 +60,19 @@ use core::{any::Any, future::Future};
 ///
 /// Note that the names in this struct are **names** only, not full paths.
 pub enum DirEntry {
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     File(Vec<u8>),
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     Directory(Vec<u8>),
 }
 
-pub trait FSGenerics: 'static {
+/// A wrapper trait encapsulating filesystem objects
+///
+/// See the [module documentation](`self`) for further details.
+pub trait FileSystem: 'static {
+    /// A type for files
     type File: File;
+    /// A type for a directory, which contains files
     type Directory: Directory<Self::File>;
 }
 
@@ -39,7 +81,7 @@ pub trait FSGenerics: 'static {
 /// Rather than make everything generic over the type of errors, we use
 /// [`Box<dyn Any>`] to hold platform-native errors.
 #[derive(Debug)]
-pub enum FilesystemError {
+pub enum FileSystemError {
     /// The requested file was not found
     NotFound(Box<dyn Any>),
     /// Any other kind of error
@@ -53,13 +95,13 @@ pub enum FilesystemError {
 /// handle.
 pub trait Directory<File>: Sized + Clone {
     /// Open a subdirectory of this directory
-    fn open_subdir(&self, name: &[u8]) -> impl Future<Output = Result<Self, FilesystemError>>;
+    fn open_subdir(&self, name: &[u8]) -> impl Future<Output = Result<Self, FileSystemError>>;
 
     /// List the entries in this directory
-    fn list_dir(&self) -> impl Future<Output = Result<Vec<DirEntry>, FilesystemError>>;
+    fn list_dir(&self) -> impl Future<Output = Result<Vec<DirEntry>, FileSystemError>>;
 
     /// Open a file (for reading)
-    fn open_file(&self, name: &[u8]) -> impl Future<Output = Result<File, FilesystemError>>;
+    fn open_file(&self, name: &[u8]) -> impl Future<Output = Result<File, FileSystemError>>;
 }
 
 /// An offset within a file; a newtype wrapper around a [`u64`]
@@ -100,7 +142,7 @@ pub trait File: Sized {
     ///
     /// This should be idempotent with any other reads. If the platform requires
     /// it, implementors should seek to the start of the file before reading.
-    fn read_all(&mut self) -> impl Future<Output = Result<Vec<u8>, FilesystemError>>;
+    fn read_all(&mut self) -> impl Future<Output = Result<Vec<u8>, FileSystemError>>;
 
     /// Read a segment of the file into the destination buffer. If less data is
     /// available than the size of the buffer, then only the first `n` bytes of
@@ -112,7 +154,7 @@ pub trait File: Sized {
         &mut self,
         offset: Offset,
         dest: &mut [u8],
-    ) -> impl Future<Output = Result<usize, FilesystemError>>;
+    ) -> impl Future<Output = Result<usize, FileSystemError>>;
 }
 
 pub(crate) type PathComponent = Vec<u8>;
@@ -124,7 +166,7 @@ enum SearchPath {
 
 pub(crate) async fn search_for_files<F: File, D: Directory<F>>(
     root: &D,
-) -> Result<Vec<Path>, FilesystemError> {
+) -> Result<Vec<Path>, FileSystemError> {
     use SearchPath::*;
     let mut out: Vec<Path> = Vec::new();
     let mut stack: Vec<SearchPath> = Vec::new();

@@ -1,6 +1,6 @@
 use core::cmp::min;
 
-use crate::file_system::{File, FilesystemError, Offset};
+use crate::file_system::{File, FileSystemError, Offset};
 use alloc::{boxed::Box, collections::BTreeMap, vec, vec::Vec};
 
 const PAGE_SIZE: usize = 4096;
@@ -19,7 +19,7 @@ impl<F: File> CachingPageReader<F> {
         }
     }
 
-    async fn get_page(&mut self, page_offset: Offset) -> Result<&[u8], FilesystemError> {
+    async fn get_page(&mut self, page_offset: Offset) -> Result<&[u8], FileSystemError> {
         if !self.pages.contains_key(&page_offset) {
             let mut page = vec![0u8; PAGE_SIZE];
             let read_len = self.file.read_segment(page_offset, &mut page).await?;
@@ -32,7 +32,7 @@ impl<F: File> CachingPageReader<F> {
 }
 
 impl<F: File> File for CachingPageReader<F> {
-    async fn read_all(&mut self) -> Result<Vec<u8>, FilesystemError> {
+    async fn read_all(&mut self) -> Result<Vec<u8>, FileSystemError> {
         self.file.read_all().await
     }
 
@@ -40,7 +40,7 @@ impl<F: File> File for CachingPageReader<F> {
         &mut self,
         offset: Offset,
         dest: &mut [u8],
-    ) -> Result<usize, FilesystemError> {
+    ) -> Result<usize, FileSystemError> {
         let mut page_offset = (offset / PAGE_SIZE_U64) * PAGE_SIZE_U64;
         let mut page_start = usize::try_from(offset.0 - page_offset.0).unwrap();
         let mut dest_pos = 0;
@@ -68,7 +68,7 @@ mod tests {
     use std::io::{Cursor, Read, Seek, SeekFrom};
 
     impl<T: AsRef<[u8]>> File for Cursor<T> {
-        async fn read_all(&mut self) -> Result<Vec<u8>, FilesystemError> {
+        async fn read_all(&mut self) -> Result<Vec<u8>, FileSystemError> {
             self.seek(SeekFrom::Start(0)).unwrap();
             let mut out = Vec::new();
             self.read_to_end(&mut out).unwrap();
@@ -79,7 +79,7 @@ mod tests {
             &mut self,
             offset: Offset,
             dest: &mut [u8],
-        ) -> Result<usize, FilesystemError> {
+        ) -> Result<usize, FileSystemError> {
             let available_len = u64::try_from(self.get_ref().as_ref().len()).unwrap() - offset.0;
             let read_len = min(usize::try_from(available_len).unwrap(), dest.len());
             self.seek(SeekFrom::Start(offset.0)).unwrap();

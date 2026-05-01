@@ -1,5 +1,5 @@
 use crate::{
-    error::{Error, GResult, IResult, InternalObjectError, PackDecompressError},
+    error::{Error, GResult, IResult, InternalObjectError},
     file_system::{File, Offset},
     object::ObjectId,
     object_store::{
@@ -61,7 +61,7 @@ fn read_obj_type_size(buf: &[u8]) -> IResult<(usize, PackObjectType, ObjectSize)
                     base_offset_neg: PackNegativeOffset(0),
                 },
                 0b0111_0000 => PackObjectType::RefDelta {
-                    base_id: ObjectId::new([0; 20]),
+                    base_id: ObjectId::from_bytes([0; 20]),
                 },
                 _ => return Err(InternalObjectError::MalformedPackObject),
             });
@@ -174,7 +174,7 @@ async fn read_pack_object_header<F: File>(
             if eof_pos - pos < 20 {
                 return Err(Error::CorruptPackFile.into());
             }
-            base_id.id.copy_from_slice(&buf[pos..(pos + 20)]);
+            base_id.bytes.copy_from_slice(&buf[pos..(pos + 20)]);
             pos += 20;
         }
     }
@@ -222,14 +222,7 @@ async fn read_pack_object_body<F: File>(
             Done => break,
             NeedsMoreInput | HasMoreOutput => {}
             _ => {
-                return Err(InternalObjectError::PackObjectDecompressError(
-                    PackDecompressError {
-                        status,
-                        input_position: pos,
-                        output_position: out_idx,
-                        pack_offset: object.body_offset,
-                    },
-                ));
+                return Err(InternalObjectError::PackObjectDecompressError(status));
             }
         }
     }

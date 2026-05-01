@@ -1,6 +1,6 @@
 use crate::{
     error::GResult,
-    file_system::{Directory, FSGenerics, FilesystemError, search_for_files},
+    file_system::{Directory, FileSystem, FileSystemError, search_for_files},
     object::{Object, ObjectId},
     object_store::{ObjectSize, ObjectType, cache::IndexCache},
     reference::{Ref, RefName, read_packed_refs},
@@ -8,24 +8,37 @@ use crate::{
 use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
 
+/// Configuration for opening a repository
 pub struct RepoConfig {
     pub(crate) index_offset_cache_max: usize,
 }
 impl RepoConfig {
+    /// Construct a default [`RepoConfig`].
+    ///
+    /// See [`RepoConfig::default()`] for further details.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Set the maximum size of the cache that holds object offsets from pack index files.
     pub fn index_offset_cache_max(&mut self, size: usize) -> &mut Self {
         self.index_offset_cache_max = size;
         self
     }
 
-    pub async fn open<G: FSGenerics>(&self, git_dir: G::Directory) -> GResult<Repo<G>> {
-        Repo::new(git_dir, self).await
+    /// Open a repo with this configuration.
+    ///
+    /// The directory must point to the **git directory**, not the working tree.
+    /// In non-bare repositories this is the `.git` subdirectory.
+    pub async fn open<G: FileSystem>(&self, git_dir: G::Directory) -> GResult<Repo<G>> {
+        Repo::new_with_config(git_dir, self).await
     }
 }
+
 impl Default for RepoConfig {
+    /// Creates a default [`RepoConfig`].
+    ///
+    /// The default maximum size of the index offset cache is 64 MiB.
     fn default() -> Self {
         Self {
             index_offset_cache_max: 64 * 1024 * 1024,
@@ -36,15 +49,17 @@ impl Default for RepoConfig {
 /// A handle to a Git repository
 ///
 /// It is generic over the implementation of filesystem operations.
-pub struct Repo<G: FSGenerics> {
+pub struct Repo<G: FileSystem> {
     pub(crate) git_dir: G::Directory,
     pub(crate) pack_dir: G::Directory,
     pub(crate) index_cache: IndexCache,
 }
 
-impl<G: FSGenerics> Repo<G> {
-    /// Open the repository located at `git_dir`.
-    pub async fn new(git_dir: G::Directory, config: &RepoConfig) -> GResult<Self> {
+impl<G: FileSystem> Repo<G> {
+    pub(crate) async fn new_with_config(
+        git_dir: G::Directory,
+        config: &RepoConfig,
+    ) -> GResult<Self> {
         let pack_dir = git_dir
             .open_subdir(b"objects")
             .await?
@@ -58,13 +73,22 @@ impl<G: FSGenerics> Repo<G> {
         })
     }
 
-    /// Collect all the refs tracked by the repository. Includes HEAD, branches,
-    /// tags, remotes and the stash.
+    /// Open the repository located at `git_dir` using a default [`RepoConfig`].
+    ///
+    /// The directory must point to the **git directory**, not the working tree.
+    /// In non-bare repositories this is the `.git` subdirectory.
+    pub async fn new(git_dir: G::Directory) -> GResult<Self> {
+        Self::new_with_config(git_dir, &RepoConfig::default()).await
+    }
+
+    /// Collect all the refs tracked by the repository
+    ///
+    /// Includes HEAD, branches, tags, remotes and the stash
     pub async fn ref_names(&self) -> GResult<BTreeSet<RefName>> {
         let mut out: BTreeSet<RefName> = BTreeSet::new();
         out.insert(RefName::Head);
         match self.git_dir.open_file(b"packed-refs").await {
-            Err(FilesystemError::NotFound(_)) => {}
+            Err(FileSystemError::NotFound(_)) => {}
             Err(e) => return Err(e.into()),
             Ok(mut packed_refs_file) => {
                 let packed_refs = read_packed_refs(&mut packed_refs_file).await?;
@@ -115,7 +139,7 @@ impl<G: FSGenerics> Repo<G> {
 mod tests {
     use super::*;
     use crate::{
-        reference::RefType,
+        reference::RefTarget,
         test::{helpers::make_basic_repo, repo::TestRepo},
     };
     use futures::executor::block_on;
@@ -126,8 +150,8 @@ mod tests {
         let repo = test_repo.repo();
         let head = block_on(repo.head()).unwrap();
         assert_eq!(
-            head.ref_type(),
-            &RefType::Symbolic(RefName::Ref(Vec::from(b"heads/main")))
+            head.target(),
+            &RefTarget::Symbolic(RefName::Ref(Vec::from(b"heads/main")))
         );
     }
 

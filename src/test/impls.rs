@@ -1,10 +1,10 @@
 use crate::{
-    file_system::FSGenerics,
+    file_system::FileSystem,
     test::directory::{TestRepoDirectory, TestRepoFile},
 };
 
 pub struct TestGenerics;
-impl FSGenerics for TestGenerics {
+impl FileSystem for TestGenerics {
     type File = TestRepoFile;
     type Directory = TestRepoDirectory;
 }

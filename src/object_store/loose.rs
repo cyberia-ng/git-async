@@ -9,17 +9,17 @@ use nom::{
 
 use crate::{
     error::{Error, GResult},
-    file_system::{Directory, FSGenerics, File, FilesystemError, Offset},
+    file_system::{Directory, File, FileSystem, FileSystemError, Offset},
     object::ObjectId,
     object_store::{ObjectSize, ObjectType, RawObject},
     repo::Repo,
 };
 
-async fn get_loose_object_file<G: FSGenerics>(
+async fn get_loose_object_file<G: FileSystem>(
     repo: &Repo<G>,
     id: ObjectId,
 ) -> GResult<Option<G::File>> {
-    let (prefix, suffix) = id.id().split_at(1);
+    let (prefix, suffix) = id.bytes().split_at(1);
     let mut prefix_buf = [0u8; 2];
     hex::encode_to_slice(prefix, &mut prefix_buf).unwrap();
     let mut suffix_buf = [0u8; 2 * 19];
@@ -27,18 +27,18 @@ async fn get_loose_object_file<G: FSGenerics>(
     let mut dir = repo.git_dir.open_subdir(b"objects").await?;
     dir = match dir.open_subdir(&prefix_buf).await {
         Ok(d) => d,
-        Err(FilesystemError::NotFound(_)) => return Ok(None),
+        Err(FileSystemError::NotFound(_)) => return Ok(None),
         Err(e) => return Err(e.into()),
     };
     let file = match dir.open_file(&suffix_buf).await {
         Ok(f) => f,
-        Err(FilesystemError::NotFound(_)) => return Ok(None),
+        Err(FileSystemError::NotFound(_)) => return Ok(None),
         Err(e) => return Err(e.into()),
     };
     Ok(Some(file))
 }
 
-pub(crate) async fn read_loose_object_size_type<G: FSGenerics>(
+pub(crate) async fn read_loose_object_size_type<G: FileSystem>(
     repo: &Repo<G>,
     id: ObjectId,
 ) -> GResult<Option<(ObjectSize, ObjectType)>> {
@@ -52,7 +52,7 @@ pub(crate) async fn read_loose_object_size_type<G: FSGenerics>(
     Ok(Some((size, object_type)))
 }
 
-pub(crate) async fn read_loose_object<G: FSGenerics>(
+pub(crate) async fn read_loose_object<G: FileSystem>(
     repo: &Repo<G>,
     id: ObjectId,
 ) -> GResult<Option<RawObject>> {
@@ -125,7 +125,7 @@ a commit
         let repo = test_repo.repo();
         let object = block_on(read_loose_object(
             &repo,
-            ObjectId::new(hex!("0000000000000000000000000000000000000000")),
+            ObjectId::from_bytes(hex!("0000000000000000000000000000000000000000")),
         ))
         .unwrap();
         assert!(object.is_none());

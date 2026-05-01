@@ -1,6 +1,6 @@
 use crate::{
     error::{GResult, annotate_with_object_id},
-    file_system::{Directory, FSGenerics, Offset},
+    file_system::{Directory, FileSystem, Offset},
     object::ObjectId,
     object_store::{
         ObjectSize, ObjectType, RawObject,
@@ -40,7 +40,7 @@ pub(crate) struct IndexedPackFile<'f, F> {
     pub(crate) pack: CachingPageReader<F>,
 }
 
-pub(crate) async fn lookup_size_type<G: FSGenerics>(
+pub(crate) async fn lookup_size_type<G: FileSystem>(
     repo: &Repo<G>,
     id: ObjectId,
 ) -> GResult<Option<(ObjectSize, ObjectType)>> {
@@ -58,7 +58,7 @@ pub(crate) async fn lookup_size_type<G: FSGenerics>(
     Ok(Some((final_object.size, object_type)))
 }
 
-pub(crate) async fn lookup<G: FSGenerics>(
+pub(crate) async fn lookup<G: FileSystem>(
     repo: &Repo<G>,
     id: ObjectId,
 ) -> GResult<Option<RawObject>> {
@@ -79,7 +79,7 @@ pub(crate) async fn lookup<G: FSGenerics>(
     Ok(Some(RawObject { object_type, body }))
 }
 
-pub(crate) async fn find_packed_object<'p, G: FSGenerics>(
+pub(crate) async fn find_packed_object<'p, G: FileSystem>(
     repo: &Repo<G>,
     pack_cache: &'p IndexCache,
     id: ObjectId,

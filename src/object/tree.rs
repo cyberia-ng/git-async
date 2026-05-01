@@ -1,6 +1,6 @@
 use crate::{
     error::GResult,
-    file_system::FSGenerics,
+    file_system::FileSystem,
     object::{Object, ObjectId},
     parsing::{ParseError, ParseResult},
     repo::Repo,
@@ -19,29 +19,51 @@ use nom::{
     sequence::terminated,
 };
 
+/// The type of an entry in a tree
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Copy, Clone)]
 pub enum TreeEntryType {
+    /// A non-executable file pointing to a blob
     File,
+    /// An executable file pointing to a blob
     Executable,
+    /// A symbolic link
+    ///
+    /// Symbolic links in git are encoded as a tree entry of type symlink
+    /// pointing to a blob. The blob's content is the path of the symlink
+    /// target.
     Symlink,
+    /// A sub-tree, i.e. a subdirectory
     Tree,
+    /// A pointer to a commit
+    ///
+    /// This is used for git submodules.
     Commit,
 }
 
+/// An entry in a tree object
+///
+/// It holds a reference to the data in the [`Tree`].
 #[derive(Accessors, Clone, PartialEq, Eq)]
 pub struct TreeEntry<'a> {
+    /// The name of the tree entry
     #[access(get(cp))]
     name: &'a [u8],
 
+    /// The type of the tree entry
     #[access(get(cp))]
     entry_type: TreeEntryType,
 
+    /// The [`ObjectId`] that the entry points to
     #[access(get(cp))]
     id: ObjectId,
 }
 
 impl TreeEntry<'_> {
-    pub async fn lookup<G: FSGenerics>(&self, repo: &Repo<G>) -> GResult<Option<Object>> {
+    /// Look up the target object using the provided [`Repo`].
+    ///
+    /// Returns `None` if the tree entry is a commit, because in that case it is
+    /// a pointer to a commit in an external repository.
+    pub async fn lookup<G: FileSystem>(&self, repo: &Repo<G>) -> GResult<Option<Object>> {
         if self.entry_type == TreeEntryType::Commit {
             Ok(None)
         } else {
@@ -70,7 +92,8 @@ impl RangeTreeEntry {
             let mut p = (
                 terminated(entry_type_parser, char(' ')),
                 terminated(take_till(|c| c == b'\0'), char('\0')),
-                take(20usize).map(|bytes| ObjectId::new(<[u8; 20]>::try_from(bytes).unwrap())),
+                take(20usize)
+                    .map(|bytes| ObjectId::from_bytes(<[u8; 20]>::try_from(bytes).unwrap())),
             );
             let (rest, (entry_type, name, id)) = p.parse(input)?;
             Ok((
@@ -85,6 +108,7 @@ impl RangeTreeEntry {
     }
 }
 
+/// An iterator over the entries in a tree object
 pub struct TreeEntryIter<'a> {
     body: &'a [u8],
     entries: &'a [RangeTreeEntry],
@@ -115,11 +139,14 @@ impl<'a> Iterator for TreeEntryIter<'a> {
 impl FusedIterator for TreeEntryIter<'_> {}
 impl ExactSizeIterator for TreeEntryIter<'_> {}
 
+/// A tree object
 #[derive(Accessors, Clone)]
 pub struct Tree {
+    /// The [`ObjectId`] of the tree
     #[access(get(cp))]
     id: ObjectId,
 
+    /// The raw data in the object
     #[access(get(ty(&[u8])))]
     body: Vec<u8>,
 
@@ -144,6 +171,7 @@ impl Ord for Tree {
 }
 
 impl Tree {
+    /// Get an iterator over the entries in the tree.
     pub fn entries(&self) -> TreeEntryIter<'_> {
         TreeEntryIter {
             body: self.body.as_slice(),
@@ -152,6 +180,7 @@ impl Tree {
         }
     }
 
+    /// Wrap the [`Tree`] as a generic [`Object`].
     pub fn as_object(self) -> Object {
         Object::Tree(self)
     }
@@ -168,7 +197,7 @@ mod tests {
     use super::*;
     use hex_literal::hex;
 
-    const ZERO_OID: ObjectId = ObjectId::new([0; 20]);
+    const ZERO_OID: ObjectId = ObjectId::from_bytes([0; 20]);
 
     #[test]
     fn parse_tree() {
@@ -189,27 +218,27 @@ mod tests {
         let expected = [
             (
                 TreeEntryType::Tree,
-                ObjectId::new(hex!("3a4df67dd7fd7cb3ca82d9896dbdd28053d39bdb")),
+                ObjectId::from_bytes(hex!("3a4df67dd7fd7cb3ca82d9896dbdd28053d39bdb")),
                 b"a-directory".as_slice(),
             ),
             (
                 TreeEntryType::File,
-                ObjectId::new(hex!("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391")),
+                ObjectId::from_bytes(hex!("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391")),
                 b"a-file".as_slice(),
             ),
             (
                 TreeEntryType::Symlink,
-                ObjectId::new(hex!("7c35e066a9001b24677ae572214d292cebc55979")),
+                ObjectId::from_bytes(hex!("7c35e066a9001b24677ae572214d292cebc55979")),
                 b"a-symlink".as_slice(),
             ),
             (
                 TreeEntryType::Executable,
-                ObjectId::new(hex!("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391")),
+                ObjectId::from_bytes(hex!("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391")),
                 b"an-executable-file".as_slice(),
             ),
             (
                 TreeEntryType::Commit,
-                ObjectId::new(hex!("91ca81cfccb6f88a34807e9810bb0be409f32d70")),
+                ObjectId::from_bytes(hex!("91ca81cfccb6f88a34807e9810bb0be409f32d70")),
                 b"a-commit".as_slice(),
             ),
         ];

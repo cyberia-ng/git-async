@@ -12,10 +12,15 @@ use nom::{
     sequence::{delimited, terminated},
 };
 
+/// An arbitrary object header, with a name and a value
 #[derive(Clone, PartialEq, Eq, Accessors)]
 pub struct ObjectHeader<'a> {
+    /// The name of the header
     #[access(get(cp))]
     name: &'a [u8],
+    /// The value of the header
+    ///
+    /// Multi-line values (using wrapped lines) are not decoded.
     #[access(get(cp))]
     value: &'a [u8],
 }
@@ -47,6 +52,7 @@ impl RangeObjectHeader {
     }
 }
 
+/// An iterator over additional headers in an object
 pub struct ObjectHeaderIter<'a> {
     body: &'a [u8],
     headers: &'a [RangeObjectHeader],

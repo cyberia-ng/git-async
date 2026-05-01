@@ -1,10 +1,10 @@
 use crate::{
     error::GResult,
-    file_system::FSGenerics,
+    file_system::FileSystem,
     object::{
         Object, ObjectId, Tree,
         header::{ObjectHeaderIter, RangeObjectHeader},
-        parse_author_committer_tagger, range_get,
+        parse_author_committer_tagger,
     },
     parsing::ParseError,
     repo::Repo,
@@ -16,17 +16,22 @@ use chrono::{DateTime, FixedOffset};
 use core::ops::Range;
 use nom::{Parser, combinator::all_consuming};
 
+/// A commit object
 #[derive(Accessors, Clone)]
 pub struct Commit {
+    /// The [`ObjectId`] of the commit
     #[access(get(cp))]
     id: ObjectId,
 
+    /// The raw data in the object
     #[access(get(ty(&[u8])))]
     body: Vec<u8>,
 
+    /// The [`ObjectId`] of the tree that the commit points to
     #[access(get(cp))]
     tree: ObjectId,
 
+    /// The [`ObjectId`]s of all of the parents of the commit
     #[access(get(ty(&[ObjectId])))]
     parents: Vec<ObjectId>,
 
@@ -36,10 +41,12 @@ pub struct Commit {
     committer_email: Range<usize>,
     message: Range<usize>,
 
+    /// The author date of the commit
     #[access(get(cp))]
     author_date: DateTime<FixedOffset>,
 
-    #[allow(clippy::struct_field_names)]
+    /// The commit date of the commit
+    #[expect(clippy::struct_field_names)]
     #[access(get(cp))]
     commit_date: DateTime<FixedOffset>,
 
@@ -64,30 +71,55 @@ impl Ord for Commit {
 }
 
 impl Commit {
-    pub async fn lookup_tree<G: FSGenerics>(&self, repo: &Repo<G>) -> GResult<Tree> {
+    /// The name of the commit author
+    pub fn author_name(&self) -> &[u8] {
+        &self.body[self.author_name.clone()]
+    }
+
+    /// The email address of the commit author
+    pub fn author_email(&self) -> &[u8] {
+        &self.body[self.author_email.clone()]
+    }
+
+    /// The name of the committer
+    pub fn committer_name(&self) -> &[u8] {
+        &self.body[self.committer_name.clone()]
+    }
+
+    /// The email address of the committer
+    pub fn committer_email(&self) -> &[u8] {
+        &self.body[self.committer_email.clone()]
+    }
+
+    /// The commit message
+    pub fn message(&self) -> &[u8] {
+        &self.body[self.message.clone()]
+    }
+
+    /// Get an iterator over any additional headers in the commit.
+    ///
+    /// Additional headers are those not parsed by `rgit`, e.g. `mergetag`.
+    pub fn additional_headers(&self) -> ObjectHeaderIter<'_> {
+        ObjectHeaderIter::new(&self.body, &self.additional_headers)
+    }
+
+    /// Wrap the [`Commit`] as a generic [`Object`].
+    pub fn as_object(self) -> Object {
+        Object::Commit(self)
+    }
+
+    /// Look up the tree that the commit points to, using the provided [`Repo`].
+    pub async fn lookup_tree<G: FileSystem>(&self, repo: &Repo<G>) -> GResult<Tree> {
         Ok(repo.lookup_object(self.tree).await?.tree()?)
     }
 
-    pub async fn lookup_parents<G: FSGenerics>(&self, repo: &Repo<G>) -> GResult<Vec<Commit>> {
+    /// Look up all the parents of the commit, using the provided [`Repo`].
+    pub async fn lookup_parents<G: FileSystem>(&self, repo: &Repo<G>) -> GResult<Vec<Commit>> {
         let mut out = Vec::with_capacity(self.parents.len());
         for parent in &self.parents {
             out.push(repo.lookup_object(*parent).await?.commit()?);
         }
         Ok(out)
-    }
-
-    range_get!(author_name, body);
-    range_get!(author_email, body);
-    range_get!(committer_name, body);
-    range_get!(committer_email, body);
-    range_get!(message, body);
-
-    pub fn additional_headers(&self) -> ObjectHeaderIter<'_> {
-        ObjectHeaderIter::new(&self.body, &self.additional_headers)
-    }
-
-    pub fn as_object(self) -> Object {
-        Object::Commit(self)
     }
 
     pub(crate) fn parse(id: ObjectId, body: Vec<u8>) -> Result<Self, ParseError> {
@@ -158,7 +190,7 @@ mod tests {
     use super::*;
     use hex_literal::hex;
 
-    const ZERO_OID: ObjectId = ObjectId::new([0; 20]);
+    const ZERO_OID: ObjectId = ObjectId::from_bytes([0; 20]);
 
     #[test]
     fn parse_root_commit() {
@@ -172,7 +204,7 @@ a commit
         assert!(commit.parents.is_empty());
         assert_eq!(
             commit.tree,
-            ObjectId::new(hex!("3a4df67dd7fd7cb3ca82d9896dbdd28053d39bdb"),)
+            ObjectId::from_bytes(hex!("3a4df67dd7fd7cb3ca82d9896dbdd28053d39bdb"),)
         );
         assert_eq!(str::from_utf8(commit.author_name()).unwrap(), "a-user");
         assert_eq!(
@@ -210,7 +242,7 @@ another commit
         let commit = Commit::parse(ZERO_OID, data.to_vec()).unwrap();
         assert_eq!(
             &commit.parents,
-            &[ObjectId::new(hex!(
+            &[ObjectId::from_bytes(hex!(
                 "16dafd3d0ba5af72f035d641c076a4150eda548d"
             ),)]
         );
