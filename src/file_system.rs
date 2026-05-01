@@ -128,7 +128,10 @@ pub(crate) async fn search_for_files<F: File, D: Directory<F>>(
         match this {
             File(path) => out.push(path),
             Directory(dir) => {
-                let dir_handle = open_dir_path(root, &dir).await?;
+                let mut dir_handle = root.clone();
+                for component in &dir {
+                    dir_handle = dir_handle.open_subdir(component).await?;
+                }
                 let entries = dir_handle.list_dir().await?;
                 let new_stack_entries = entries.into_iter().map(|entry| {
                     let mut new_path = dir.clone();
@@ -148,17 +151,6 @@ pub(crate) async fn search_for_files<F: File, D: Directory<F>>(
         }
     }
     Ok(out)
-}
-
-async fn open_dir_path<F: File, D: Directory<F>>(
-    directory: &D,
-    path: &Path,
-) -> Result<D, FilesystemError> {
-    let mut dir = directory.clone();
-    for component in path {
-        dir = dir.open_subdir(component).await?;
-    }
-    Ok(dir)
 }
 
 #[cfg(test)]
