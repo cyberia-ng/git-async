@@ -1,8 +1,8 @@
 use crate::{
     Repo,
     error::{Error, GResult},
+    file_system::FSGenerics,
     object::{Object, ObjectId, Tree, TreeEntry, TreeEntryType},
-    traits::AllGenerics,
 };
 use accessory::Accessors;
 use alloc::format;
@@ -142,12 +142,12 @@ pub struct TreeDiff {
 }
 
 impl TreeDiff {
-    pub async fn new<G: AllGenerics>(repo: &Repo<G>, left: &Tree, right: &Tree) -> GResult<Self> {
+    pub async fn new<G: FSGenerics>(repo: &Repo<G>, left: &Tree, right: &Tree) -> GResult<Self> {
         Self::new_cancelable(repo, left, right, async || false).await
     }
 
     #[allow(clippy::too_many_lines)]
-    pub async fn new_cancelable<G: AllGenerics>(
+    pub async fn new_cancelable<G: FSGenerics>(
         repo: &Repo<G>,
         left: &Tree,
         right: &Tree,
@@ -300,12 +300,12 @@ impl TreeDiff {
         Ok(Self { entries: out })
     }
 
-    pub async fn to_text_diff<G: AllGenerics>(&self, repo: &Repo<G>) -> GResult<Diff> {
+    pub async fn to_text_diff<G: FSGenerics>(&self, repo: &Repo<G>) -> GResult<Diff> {
         self.to_text_diff_full(repo, &TextDiffConfig::default(), async || false)
             .await
     }
 
-    pub async fn to_text_diff_full<G: AllGenerics>(
+    pub async fn to_text_diff_full<G: FSGenerics>(
         &self,
         repo: &Repo<G>,
         config: &TextDiffConfig,
@@ -323,7 +323,7 @@ impl TreeDiff {
     }
 }
 
-async fn tree<G: AllGenerics>(repo: &Repo<G>, id: ObjectId) -> GResult<Tree> {
+async fn tree<G: FSGenerics>(repo: &Repo<G>, id: ObjectId) -> GResult<Tree> {
     repo.lookup_object(id)
         .await?
         .peel_to_tree(repo)
@@ -332,7 +332,7 @@ async fn tree<G: AllGenerics>(repo: &Repo<G>, id: ObjectId) -> GResult<Tree> {
 }
 
 impl DiffEntry<(ObjectId, ObjectId)> {
-    pub async fn resolve<G: AllGenerics>(
+    pub async fn resolve<G: FSGenerics>(
         &self,
         repo: &Repo<G>,
         config: TextDiffConfig,
@@ -382,7 +382,7 @@ impl DiffEntry<(ObjectId, ObjectId)> {
     }
 }
 
-async fn read_leaf<G: AllGenerics>(
+async fn read_leaf<G: FSGenerics>(
     repo: &Repo<G>,
     entry_type: TreeEntryType,
     id: ObjectId,

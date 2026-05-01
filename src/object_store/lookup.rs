@@ -1,6 +1,6 @@
 use crate::{
     error::{GResult, annotate_with_object_id},
-    file_system::{Directory, Offset},
+    file_system::{Directory, FSGenerics, Offset},
     object::ObjectId,
     object_store::{
         ObjectSize, ObjectType, RawObject,
@@ -11,7 +11,6 @@ use crate::{
         page_read::CachingPageReader,
     },
     repo::Repo,
-    traits::AllGenerics,
 };
 use alloc::vec::Vec;
 
@@ -41,7 +40,7 @@ pub(crate) struct IndexedPackFile<'f, F> {
     pub(crate) pack: CachingPageReader<F>,
 }
 
-pub(crate) async fn lookup_size_type<G: AllGenerics>(
+pub(crate) async fn lookup_size_type<G: FSGenerics>(
     repo: &Repo<G>,
     id: ObjectId,
 ) -> GResult<Option<(ObjectSize, ObjectType)>> {
@@ -59,7 +58,7 @@ pub(crate) async fn lookup_size_type<G: AllGenerics>(
     Ok(Some((final_object.size, object_type)))
 }
 
-pub(crate) async fn lookup<G: AllGenerics>(
+pub(crate) async fn lookup<G: FSGenerics>(
     repo: &Repo<G>,
     id: ObjectId,
 ) -> GResult<Option<RawObject>> {
@@ -80,7 +79,7 @@ pub(crate) async fn lookup<G: AllGenerics>(
     Ok(Some(RawObject { object_type, body }))
 }
 
-pub(crate) async fn find_packed_object<'p, G: AllGenerics>(
+pub(crate) async fn find_packed_object<'p, G: FSGenerics>(
     repo: &Repo<G>,
     pack_cache: &'p IndexCache,
     id: ObjectId,

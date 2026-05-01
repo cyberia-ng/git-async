@@ -1,5 +1,6 @@
 use crate::{
     error::GResult,
+    file_system::FSGenerics,
     object::{
         Object, ObjectId, Tree,
         header::{ObjectHeaderIter, RangeObjectHeader},
@@ -8,7 +9,6 @@ use crate::{
     parsing::ParseError,
     repo::Repo,
     subslice_range::SubsliceRange,
-    traits::AllGenerics,
 };
 use accessory::Accessors;
 use alloc::vec::Vec;
@@ -64,11 +64,11 @@ impl Ord for Commit {
 }
 
 impl Commit {
-    pub async fn lookup_tree<G: AllGenerics>(&self, repo: &Repo<G>) -> GResult<Tree> {
+    pub async fn lookup_tree<G: FSGenerics>(&self, repo: &Repo<G>) -> GResult<Tree> {
         Ok(repo.lookup_object(self.tree).await?.tree()?)
     }
 
-    pub async fn lookup_parents<G: AllGenerics>(&self, repo: &Repo<G>) -> GResult<Vec<Commit>> {
+    pub async fn lookup_parents<G: FSGenerics>(&self, repo: &Repo<G>) -> GResult<Vec<Commit>> {
         let mut out = Vec::with_capacity(self.parents.len());
         for parent in &self.parents {
             out.push(repo.lookup_object(*parent).await?.commit()?);

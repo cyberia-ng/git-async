@@ -1,10 +1,9 @@
 use crate::{
     error::GResult,
-    file_system::{Directory, FilesystemError, search_for_files},
+    file_system::{Directory, FSGenerics, FilesystemError, search_for_files},
     object::{Object, ObjectId},
     object_store::{ObjectSize, ObjectType, cache::IndexCache},
     reference::{Ref, RefName, read_packed_refs},
-    traits::AllGenerics,
 };
 use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
@@ -22,7 +21,7 @@ impl RepoConfig {
         self
     }
 
-    pub async fn open<G: AllGenerics>(&self, git_dir: G::Directory) -> GResult<Repo<G>> {
+    pub async fn open<G: FSGenerics>(&self, git_dir: G::Directory) -> GResult<Repo<G>> {
         Repo::new(git_dir, self).await
     }
 }
@@ -37,13 +36,13 @@ impl Default for RepoConfig {
 /// A handle to a Git repository
 ///
 /// It is generic over the implementation of filesystem operations.
-pub struct Repo<G: AllGenerics> {
+pub struct Repo<G: FSGenerics> {
     pub(crate) git_dir: G::Directory,
     pub(crate) pack_dir: G::Directory,
     pub(crate) index_cache: IndexCache,
 }
 
-impl<G: AllGenerics> Repo<G> {
+impl<G: FSGenerics> Repo<G> {
     /// Open the repository located at `git_dir`.
     pub async fn new(git_dir: G::Directory, config: &RepoConfig) -> GResult<Self> {
         let pack_dir = git_dir

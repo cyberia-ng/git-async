@@ -9,14 +9,13 @@ use nom::{
 
 use crate::{
     error::{Error, GResult},
-    file_system::{Directory, File, FilesystemError, Offset},
+    file_system::{Directory, FSGenerics, File, FilesystemError, Offset},
     object::ObjectId,
     object_store::{ObjectSize, ObjectType, RawObject},
     repo::Repo,
-    traits::AllGenerics,
 };
 
-async fn get_loose_object_file<G: AllGenerics>(
+async fn get_loose_object_file<G: FSGenerics>(
     repo: &Repo<G>,
     id: ObjectId,
 ) -> GResult<Option<G::File>> {
@@ -39,7 +38,7 @@ async fn get_loose_object_file<G: AllGenerics>(
     Ok(Some(file))
 }
 
-pub(crate) async fn read_loose_object_size_type<G: AllGenerics>(
+pub(crate) async fn read_loose_object_size_type<G: FSGenerics>(
     repo: &Repo<G>,
     id: ObjectId,
 ) -> GResult<Option<(ObjectSize, ObjectType)>> {
@@ -53,7 +52,7 @@ pub(crate) async fn read_loose_object_size_type<G: AllGenerics>(
     Ok(Some((size, object_type)))
 }
 
-pub(crate) async fn read_loose_object<G: AllGenerics>(
+pub(crate) async fn read_loose_object<G: FSGenerics>(
     repo: &Repo<G>,
     id: ObjectId,
 ) -> GResult<Option<RawObject>> {

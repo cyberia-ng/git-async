@@ -1,10 +1,9 @@
 use crate::{
     error::{Error, GResult},
-    file_system::{Directory, File, FilesystemError},
+    file_system::{Directory, FSGenerics, File, FilesystemError},
     object::{Commit, ObjectId, Tree},
     parsing::ParseResult,
     repo::Repo,
-    traits::AllGenerics,
 };
 use accessory::Accessors;
 use alloc::vec::Vec;
@@ -25,7 +24,7 @@ pub enum RefName {
 }
 
 impl RefName {
-    pub(crate) async fn open_loose_ref<G: AllGenerics>(
+    pub(crate) async fn open_loose_ref<G: FSGenerics>(
         &self,
         repo: &Repo<G>,
     ) -> GResult<Option<G::File>> {
@@ -72,7 +71,7 @@ pub enum RefType {
 }
 
 impl Ref {
-    pub(crate) async fn lookup<G: AllGenerics>(repo: &Repo<G>, name: &RefName) -> GResult<Ref> {
+    pub(crate) async fn lookup<G: FSGenerics>(repo: &Repo<G>, name: &RefName) -> GResult<Ref> {
         let ref_type = {
             if let Some(reference) = lookup_loose_ref(repo, name).await? {
                 reference
@@ -95,7 +94,7 @@ impl Ref {
         })
     }
 
-    pub async fn resolve_object_id<G: AllGenerics>(&self, repo: &Repo<G>) -> GResult<ObjectId> {
+    pub async fn resolve_object_id<G: FSGenerics>(&self, repo: &Repo<G>) -> GResult<ObjectId> {
         let mut target: Ref = self.clone();
         while let RefType::Symbolic(name) = target.ref_type {
             target = repo.lookup_ref(&name).await?;
@@ -106,13 +105,13 @@ impl Ref {
         }
     }
 
-    pub async fn peel_to_commit<G: AllGenerics>(&self, repo: &Repo<G>) -> GResult<Option<Commit>> {
+    pub async fn peel_to_commit<G: FSGenerics>(&self, repo: &Repo<G>) -> GResult<Option<Commit>> {
         let oid = self.resolve_object_id(repo).await?;
         let object = repo.lookup_object(oid).await?;
         object.peel_to_commit(repo).await
     }
 
-    pub async fn peel_to_tree<G: AllGenerics>(&self, repo: &Repo<G>) -> GResult<Option<Tree>> {
+    pub async fn peel_to_tree<G: FSGenerics>(&self, repo: &Repo<G>) -> GResult<Option<Tree>> {
         let oid = self.resolve_object_id(repo).await?;
         let object = repo.lookup_object(oid).await?;
         object.peel_to_tree(repo).await
@@ -158,7 +157,7 @@ pub(crate) async fn read_packed_refs<F: File>(
     Ok(refs.into_iter().flatten().collect())
 }
 
-pub(crate) async fn lookup_loose_ref<G: AllGenerics>(
+pub(crate) async fn lookup_loose_ref<G: FSGenerics>(
     repo: &Repo<G>,
     name: &RefName,
 ) -> GResult<Option<RefType>> {

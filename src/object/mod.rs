@@ -1,12 +1,12 @@
 use crate::{
     error::{Error, GResult, InternalObjectError, UnexpectedObjectType, annotate_with_object_id},
+    file_system::FSGenerics,
     object_store::{
         RawObject,
         lookup::{lookup, lookup_size_type},
     },
     parsing::ParseResult,
     repo::Repo,
-    traits::AllGenerics,
 };
 use accessory::Accessors;
 use alloc::format;
@@ -155,7 +155,7 @@ impl Object {
         }
     }
 
-    pub async fn peel_to_commit<G: AllGenerics>(&self, repo: &Repo<G>) -> GResult<Option<Commit>> {
+    pub async fn peel_to_commit<G: FSGenerics>(&self, repo: &Repo<G>) -> GResult<Option<Commit>> {
         use Object::*;
         let mut obj: Object = self.clone();
         loop {
@@ -170,7 +170,7 @@ impl Object {
         }
     }
 
-    pub async fn peel_to_tree<G: AllGenerics>(&self, repo: &Repo<G>) -> GResult<Option<Tree>> {
+    pub async fn peel_to_tree<G: FSGenerics>(&self, repo: &Repo<G>) -> GResult<Option<Tree>> {
         use Object::*;
         let mut obj: Object = self.clone();
         loop {
@@ -189,7 +189,7 @@ impl Object {
         }
     }
 
-    pub(crate) async fn lookup<G: AllGenerics>(repo: &Repo<G>, id: ObjectId) -> GResult<Self> {
+    pub(crate) async fn lookup<G: FSGenerics>(repo: &Repo<G>, id: ObjectId) -> GResult<Self> {
         let RawObject { object_type, body } = lookup(repo, id)
             .await?
             .ok_or_else(|| Error::MissingObject(id))?;
@@ -216,7 +216,7 @@ impl Object {
         Ok(object)
     }
 
-    pub(crate) async fn lookup_size_type<G: AllGenerics>(
+    pub(crate) async fn lookup_size_type<G: FSGenerics>(
         repo: &Repo<G>,
         id: ObjectId,
     ) -> GResult<(ObjectSize, ObjectType)> {

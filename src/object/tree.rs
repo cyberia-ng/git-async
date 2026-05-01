@@ -1,10 +1,10 @@
 use crate::{
     error::GResult,
+    file_system::FSGenerics,
     object::{Object, ObjectId},
     parsing::{ParseError, ParseResult},
     repo::Repo,
     subslice_range::SubsliceRange,
-    traits::AllGenerics,
 };
 use accessory::Accessors;
 use alloc::vec::Vec;
@@ -41,7 +41,7 @@ pub struct TreeEntry<'a> {
 }
 
 impl TreeEntry<'_> {
-    pub async fn lookup<G: AllGenerics>(&self, repo: &Repo<G>) -> GResult<Option<Object>> {
+    pub async fn lookup<G: FSGenerics>(&self, repo: &Repo<G>) -> GResult<Option<Object>> {
         if self.entry_type == TreeEntryType::Commit {
             Ok(None)
         } else {

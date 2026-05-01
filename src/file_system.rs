@@ -29,6 +29,11 @@ pub enum DirEntry {
     Directory(Vec<u8>),
 }
 
+pub trait FSGenerics: 'static {
+    type File: File;
+    type Directory: Directory<Self::File>;
+}
+
 /// An error encountered when doing file or directory operations.
 ///
 /// Rather than make everything generic over the type of errors, we use

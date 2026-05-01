@@ -1,5 +1,6 @@
 use crate::{
     error::GResult,
+    file_system::FSGenerics,
     object::{
         Object, ObjectId,
         header::{ObjectHeaderIter, RangeObjectHeader},
@@ -8,7 +9,6 @@ use crate::{
     parsing::ParseError,
     repo::Repo,
     subslice_range::SubsliceRange,
-    traits::AllGenerics,
 };
 use accessory::Accessors;
 use alloc::vec::Vec;
@@ -68,7 +68,7 @@ impl Ord for Tag {
 }
 
 impl Tag {
-    pub async fn lookup_target<G: AllGenerics>(&self, repo: &Repo<G>) -> GResult<Object> {
+    pub async fn lookup_target<G: FSGenerics>(&self, repo: &Repo<G>) -> GResult<Object> {
         repo.lookup_object(self.target).await
     }
 
