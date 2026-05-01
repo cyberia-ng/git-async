@@ -57,17 +57,26 @@ pub struct TestRepo {
 }
 
 impl TestRepo {
+    pub fn git_command(&self) -> Command {
+        let mut command = Command::new("git");
+        command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .current_dir(self.location.path())
+            .env_remove("GIT_AUTHOR_NAME")
+            .env_remove("GIT_AUTHOR_EMAIL")
+            .env_remove("GIT_AUTHOR_DATE")
+            .env_remove("GIT_COMMITTER_NAME")
+            .env_remove("GIT_COMMITTER_EMAIL")
+            .env_remove("GIT_COMMITTER_DATE");
+        command
+    }
     pub fn run_git(
         &self,
         args: impl IntoIterator<Item = impl AsRef<OsStr>>,
     ) -> io::Result<Vec<u8>> {
-        let mut git_process = Command::new("git")
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .current_dir(self.location.path())
-            .args(args)
-            .spawn()?;
+        let mut git_process = self.git_command().args(args).spawn()?;
         let status = git_process.wait()?;
         assert!(status.success());
         let mut output = Vec::new();
@@ -114,8 +123,8 @@ impl TestRepo {
         date: &str,
     ) -> io::Result<()> {
         self.set_user(author_name, author_email)?;
-        let mut p = Command::new("git")
-            .current_dir(self.location.path())
+        let mut p = self
+            .git_command()
             .env("GIT_AUTHOR_DATE", date)
             .env("GIT_COMMITTER_DATE", date)
             .args(["commit", "-m", message])
@@ -137,8 +146,8 @@ impl TestRepo {
         date: &str,
     ) -> io::Result<()> {
         self.set_user(author_name, author_email)?;
-        let mut p = Command::new("git")
-            .current_dir(self.location.path())
+        let mut p = self
+            .git_command()
             .env("GIT_COMMITTER_DATE", date)
             .args(["tag", "-a", "-m", message, tag_name, object])
             .stdout(Stdio::null())

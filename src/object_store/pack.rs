@@ -338,10 +338,7 @@ pub(crate) async fn reconstruct_deltified_object_from_chain<F: File>(
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        fs::{create_dir, rename},
-        process::{Command, Stdio},
-    };
+    use std::fs::{create_dir, rename};
 
     use crate::{
         object::ObjectId,
@@ -558,10 +555,8 @@ a tag
         test_repo.run_git(["gc"]).unwrap();
         let objects_dir = test_repo.location.path().join(".git").join("objects");
         create_dir(objects_dir.join("pack-new")).unwrap();
-        let mut git_process = Command::new("git")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
+        let mut git_process = test_repo
+            .git_command()
             .current_dir(objects_dir.join("pack-new"))
             .args([
                 "pack-objects",
