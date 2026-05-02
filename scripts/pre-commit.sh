@@ -9,5 +9,5 @@ fi
 ./scripts/generate-readme.sh
 git add README.md
 cargo fmt --check
-cargo clippy -- -D warnings
-cargo test --quiet
+cargo clippy --all-features -- -D warnings
+cargo test --all-features --quiet

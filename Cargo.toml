@@ -13,9 +13,19 @@ categories = ["development-tools", "no-std"]
 accessory = "2.1.0"
 chrono = { version = "0.4.44", default-features = false, features = ["alloc"] }
 hex = { version = "0.4.3", default-features = false, features = [] }
+js-sys = { version = "0.3.97", default-features = false, optional = true }
 miniz_oxide = "0.9.1"
 nom = { version = "8.0.0", default-features = false, features = ["alloc"] }
 similar = { version = "3.1.0", default-features = false, features = ["bytes"], optional = true }
+wasm-bindgen = { version = "0.2.120", default-features = false, optional = true }
+wasm-bindgen-futures = { version = "0.4.70", default-features = false, optional = true }
+web-sys = { version = "0.3.97", features = [
+  "DomException",
+  "File",
+  "FileList",
+  "FileSystemDirectoryHandle",
+  "FileSystemFileHandle"
+], optional = true }
 
 [dev-dependencies]
 futures = "0.3.32"
@@ -26,5 +36,11 @@ rusty-hook = "0.11.2"
 tempfile = "3.27.0"
 
 [features]
-default = ["diff"]
+default = []
 diff = ["dep:similar"]
+web = [
+  "dep:js-sys",
+  "dep:wasm-bindgen",
+  "dep:wasm-bindgen-futures",
+  "dep:web-sys"
+]
