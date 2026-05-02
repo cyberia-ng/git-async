@@ -93,7 +93,7 @@ impl TestRepo {
         let repo = TestRepo {
             location: TestDirectory::Temp(Arc::new(dir)),
         };
-        repo.run_git(["init"])?;
+        repo.run_git(["init", "--initial-branch=main"])?;
         repo.set_user("a user", "an-email-address")?;
         Ok(repo)
     }
