@@ -7,6 +7,7 @@
 //! The main entry point is the [`Repo`] object, which represents a git
 //! repository. Refs and objects are looked up via methods on [`Repo`].
 
+#![cfg_attr(docsrs, feature(doc_cfg))]
 #![cfg_attr(doc, warn(missing_docs))]
 #![cfg_attr(not(test), no_std)]
 #![warn(clippy::pedantic)]
