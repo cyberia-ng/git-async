@@ -1,4 +1,4 @@
-//! A module for errors which may occur during the use of `rgit`
+//! A module for errors which may occur during the use of `git-future`
 
 use crate::{
     file_system::FileSystemError,

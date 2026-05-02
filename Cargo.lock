@@ -226,6 +226,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "git-future"
+version = "0.1.0"
+dependencies = [
+ "accessory",
+ "chrono",
+ "futures",
+ "hex",
+ "hex-literal",
+ "miniz_oxide",
+ "nom",
+ "rand_core",
+ "rand_pcg",
+ "rusty-hook",
+ "similar",
+ "tempfile",
+]
+
+[[package]]
 name = "hashbrown"
 version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -468,24 +486,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "caa0f4137e1c0a72f4c651489402276c8e8e1cf081f3b0ba156d2cbeef09e86a"
 dependencies = [
  "rand_core",
-]
-
-[[package]]
-name = "rgit"
-version = "0.1.0"
-dependencies = [
- "accessory",
- "chrono",
- "futures",
- "hex",
- "hex-literal",
- "miniz_oxide",
- "nom",
- "rand_core",
- "rand_pcg",
- "rusty-hook",
- "similar",
- "tempfile",
 ]
 
 [[package]]

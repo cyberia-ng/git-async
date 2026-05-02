@@ -1,9 +1,9 @@
 [package]
-name = "rgit"
+name = "git-future"
 version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
-description = "An async-aware git library"
+description = "An async-first library for reading git repositories"
 keywords = ["async", "git"]
 categories = ["no-std", "development-tools"]
 readme = "README.md"

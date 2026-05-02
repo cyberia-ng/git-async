@@ -1,7 +1,7 @@
 //! Traits and error types for interacting with files and directories
 //!
 //! The purpose of this module is to specify what consumers of this library must
-//! implement in order for the filesystem calls in rgit to work.
+//! implement in order for the filesystem calls in `git-future` to work.
 //!
 //! The [`FileSystem`] trait is a wrapper trait which has associated types for
 //! objects which implement [`File`] and [`Directory`]. The correct way to
@@ -12,7 +12,7 @@
 //! For example:
 //!
 //! ```
-//! # use rgit::file_system::{File, Directory, FileSystem, FileSystemError, Offset, DirEntry};
+//! # use git_future::file_system::{File, Directory, FileSystem, FileSystemError, Offset, DirEntry};
 //! struct MyFile {
 //!     /* path, handle, etc. */
 //! }
@@ -47,7 +47,7 @@
 //! nullifies the async capabilities of this crate. If you are using Tokio for
 //! example, you should use primitives from
 //! [`tokio::fs`](https://docs.rs/tokio/latest/tokio/fs/). If you are using
-//! `rgit` in a browser, you may want to use the [web filesystem
+//! `git-future` in a browser, you may want to use the [web filesystem
 //! API](https://developer.mozilla.org/en-US/docs/Web/API/File_System_API).
 
 use alloc::{boxed::Box, vec::Vec};

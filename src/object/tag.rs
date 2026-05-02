@@ -94,7 +94,8 @@ impl Tag {
 
     /// Get an iterator over any additional headers in the tag object.
     ///
-    /// Additional headers are those not parsed by `rgit`, e.g. `mergetag`.
+    /// Additional headers are those not parsed by `git-future`, e.g.
+    /// `mergetag`.
     pub fn additional_headers(&self) -> ObjectHeaderIter<'_> {
         ObjectHeaderIter::new(self.body.as_slice(), self.additional_headers.as_slice())
     }
