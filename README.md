@@ -20,6 +20,7 @@ A future goal is to provide some standard implementations for commonly-used
 async runtimes.
 
 ## Example
+
 ```rust
 async fn example() -> GResult<()> {
     let repo = Repo::<MyFS>::open(MyDirectory::new("a-repository")).await?;
@@ -32,6 +33,7 @@ async fn example() -> GResult<()> {
 ```
 
 ## Caveats
+
 There are a few things this crate cannot (yet) do. They are in scope, so
 future versions may support them, but for now they are not implemented.
 

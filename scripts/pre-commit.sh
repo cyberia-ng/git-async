@@ -9,5 +9,6 @@ fi
 ./scripts/generate-readme.sh
 git add README.md
 cargo fmt --check
+oxfmt --check
 cargo clippy --all-features -- -D warnings
 cargo test --all-features --quiet

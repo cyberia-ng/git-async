@@ -18,6 +18,7 @@
 //! async runtimes.
 //!
 //! # Example
+//!
 //! ```
 //! # use git_async::Repo;
 //! # use git_async::error::GResult;
@@ -51,6 +52,7 @@
 //! ```
 //!
 //! # Caveats
+//!
 //! There are a few things this crate cannot (yet) do. They are in scope, so
 //! future versions may support them, but for now they are not implemented.
 //!
