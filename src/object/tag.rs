@@ -105,7 +105,7 @@ impl Tag {
     }
 
     /// Look up the target object of the tag using the provided [`Repo`].
-    pub async fn lookup_target<G: FileSystem>(&self, repo: &Repo<G>) -> GResult<Object> {
+    pub async fn lookup_target<F: FileSystem>(&self, repo: &Repo<F>) -> GResult<Object> {
         repo.lookup_object(self.target).await
     }
 

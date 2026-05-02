@@ -35,10 +35,10 @@ pub enum RefName {
 }
 
 impl RefName {
-    pub(crate) async fn open_loose_ref<G: FileSystem>(
+    pub(crate) async fn open_loose_ref<F: FileSystem>(
         &self,
-        repo: &Repo<G>,
-    ) -> GResult<Option<G::File>> {
+        repo: &Repo<F>,
+    ) -> GResult<Option<F::File>> {
         use RefName::*;
         let sub_path = match self {
             Head => {
@@ -94,7 +94,7 @@ pub enum RefTarget {
 }
 
 impl Ref {
-    pub(crate) async fn lookup<G: FileSystem>(repo: &Repo<G>, name: &RefName) -> GResult<Ref> {
+    pub(crate) async fn lookup<F: FileSystem>(repo: &Repo<F>, name: &RefName) -> GResult<Ref> {
         let ref_type = {
             if let Some(reference) = lookup_loose_ref(repo, name).await? {
                 reference
@@ -119,7 +119,7 @@ impl Ref {
 
     /// Follow a chain of refs until a direct ref is obtained, and return the
     /// object ID that it points to.
-    pub async fn resolve_object_id<G: FileSystem>(&self, repo: &Repo<G>) -> GResult<ObjectId> {
+    pub async fn resolve_object_id<F: FileSystem>(&self, repo: &Repo<F>) -> GResult<ObjectId> {
         let mut target: Ref = self.clone();
         while let RefTarget::Symbolic(name) = target.target {
             target = repo.lookup_ref(&name).await?;
@@ -133,7 +133,7 @@ impl Ref {
     /// Peel the ref to a commit object.
     ///
     /// Returns `None` if the ref does not point to a commit object.
-    pub async fn peel_to_commit<G: FileSystem>(&self, repo: &Repo<G>) -> GResult<Option<Commit>> {
+    pub async fn peel_to_commit<F: FileSystem>(&self, repo: &Repo<F>) -> GResult<Option<Commit>> {
         let oid = self.resolve_object_id(repo).await?;
         let object = repo.lookup_object(oid).await?;
         object.peel_to_commit(repo).await
@@ -142,7 +142,7 @@ impl Ref {
     /// Peel the ref to a tree object.
     ///
     /// Returns `None` if the ref does not point to a commit or a tree object.
-    pub async fn peel_to_tree<G: FileSystem>(&self, repo: &Repo<G>) -> GResult<Option<Tree>> {
+    pub async fn peel_to_tree<F: FileSystem>(&self, repo: &Repo<F>) -> GResult<Option<Tree>> {
         let oid = self.resolve_object_id(repo).await?;
         let object = repo.lookup_object(oid).await?;
         object.peel_to_tree(repo).await
@@ -188,8 +188,8 @@ pub(crate) async fn read_packed_refs<F: File>(
     Ok(refs.into_iter().flatten().collect())
 }
 
-pub(crate) async fn lookup_loose_ref<G: FileSystem>(
-    repo: &Repo<G>,
+pub(crate) async fn lookup_loose_ref<F: FileSystem>(
+    repo: &Repo<F>,
     name: &RefName,
 ) -> GResult<Option<RefTarget>> {
     let Some(mut ref_file) = name.open_loose_ref(repo).await? else {

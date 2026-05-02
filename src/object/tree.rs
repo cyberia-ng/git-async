@@ -63,7 +63,7 @@ impl TreeEntry<'_> {
     ///
     /// Returns `None` if the tree entry is a commit, because in that case it is
     /// a pointer to a commit in an external repository.
-    pub async fn lookup<G: FileSystem>(&self, repo: &Repo<G>) -> GResult<Option<Object>> {
+    pub async fn lookup<F: FileSystem>(&self, repo: &Repo<F>) -> GResult<Option<Object>> {
         if self.entry_type == TreeEntryType::Commit {
             Ok(None)
         } else {

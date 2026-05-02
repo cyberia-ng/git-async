@@ -109,12 +109,12 @@ impl Commit {
     }
 
     /// Look up the tree that the commit points to, using the provided [`Repo`].
-    pub async fn lookup_tree<G: FileSystem>(&self, repo: &Repo<G>) -> GResult<Tree> {
+    pub async fn lookup_tree<F: FileSystem>(&self, repo: &Repo<F>) -> GResult<Tree> {
         Ok(repo.lookup_object(self.tree).await?.tree()?)
     }
 
     /// Look up all the parents of the commit, using the provided [`Repo`].
-    pub async fn lookup_parents<G: FileSystem>(&self, repo: &Repo<G>) -> GResult<Vec<Commit>> {
+    pub async fn lookup_parents<F: FileSystem>(&self, repo: &Repo<F>) -> GResult<Vec<Commit>> {
         let mut out = Vec::with_capacity(self.parents.len());
         for parent in &self.parents {
             out.push(repo.lookup_object(*parent).await?.commit()?);

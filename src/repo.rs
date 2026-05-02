@@ -27,7 +27,7 @@ impl RepoConfig {
     }
 
     /// Open a repo with this configuration.
-    pub async fn open<G: FileSystem>(&self, open_dir: G::Directory) -> GResult<Repo<G>> {
+    pub async fn open<F: FileSystem>(&self, open_dir: F::Directory) -> GResult<Repo<F>> {
         Repo::open_with_config(open_dir, self).await
     }
 }
@@ -46,15 +46,15 @@ impl Default for RepoConfig {
 /// A handle to a Git repository
 ///
 /// It is generic over the implementation of filesystem operations.
-pub struct Repo<G: FileSystem> {
-    pub(crate) git_dir: G::Directory,
-    pub(crate) pack_dir: G::Directory,
+pub struct Repo<F: FileSystem> {
+    pub(crate) git_dir: F::Directory,
+    pub(crate) pack_dir: F::Directory,
     pub(crate) index_cache: IndexCache,
 }
 
-impl<G: FileSystem> Repo<G> {
+impl<F: FileSystem> Repo<F> {
     pub(crate) async fn open_with_config(
-        open_dir: G::Directory,
+        open_dir: F::Directory,
         config: &RepoConfig,
     ) -> GResult<Self> {
         let git_dir = Self::resolve_git_dir(open_dir).await?;
@@ -71,7 +71,7 @@ impl<G: FileSystem> Repo<G> {
         })
     }
 
-    pub(crate) async fn resolve_git_dir(open_dir: G::Directory) -> GResult<G::Directory> {
+    pub(crate) async fn resolve_git_dir(open_dir: F::Directory) -> GResult<F::Directory> {
         let head = open_dir.open_file(b"HEAD").await;
         match head {
             Ok(_) => Ok(open_dir),
@@ -89,7 +89,7 @@ impl<G: FileSystem> Repo<G> {
     }
 
     /// Open the repository located at `git_dir` using a default [`RepoConfig`].
-    pub async fn open(git_dir: G::Directory) -> GResult<Self> {
+    pub async fn open(git_dir: F::Directory) -> GResult<Self> {
         Self::open_with_config(git_dir, &RepoConfig::default()).await
     }
 

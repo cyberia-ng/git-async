@@ -193,7 +193,7 @@ impl Object {
     }
 
     /// Peel the object to a [`Commit`], if possible.
-    pub async fn peel_to_commit<G: FileSystem>(&self, repo: &Repo<G>) -> GResult<Option<Commit>> {
+    pub async fn peel_to_commit<F: FileSystem>(&self, repo: &Repo<F>) -> GResult<Option<Commit>> {
         use Object::*;
         let mut obj: Object = self.clone();
         loop {
@@ -209,7 +209,7 @@ impl Object {
     }
 
     /// Peel the object to a [`Tree`], if possible.
-    pub async fn peel_to_tree<G: FileSystem>(&self, repo: &Repo<G>) -> GResult<Option<Tree>> {
+    pub async fn peel_to_tree<F: FileSystem>(&self, repo: &Repo<F>) -> GResult<Option<Tree>> {
         use Object::*;
         let mut obj: Object = self.clone();
         loop {
@@ -228,7 +228,7 @@ impl Object {
         }
     }
 
-    pub(crate) async fn lookup<G: FileSystem>(repo: &Repo<G>, id: ObjectId) -> GResult<Self> {
+    pub(crate) async fn lookup<F: FileSystem>(repo: &Repo<F>, id: ObjectId) -> GResult<Self> {
         let RawObject { object_type, body } = lookup(repo, id)
             .await?
             .ok_or_else(|| Error::MissingObject(id))?;
@@ -255,8 +255,8 @@ impl Object {
         Ok(object)
     }
 
-    pub(crate) async fn lookup_size_type<G: FileSystem>(
-        repo: &Repo<G>,
+    pub(crate) async fn lookup_size_type<F: FileSystem>(
+        repo: &Repo<F>,
         id: ObjectId,
     ) -> GResult<(ObjectSize, ObjectType)> {
         lookup_size_type(repo, id)

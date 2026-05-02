@@ -15,10 +15,10 @@ use crate::{
     repo::Repo,
 };
 
-async fn get_loose_object_file<G: FileSystem>(
-    repo: &Repo<G>,
+async fn get_loose_object_file<F: FileSystem>(
+    repo: &Repo<F>,
     id: ObjectId,
-) -> GResult<Option<G::File>> {
+) -> GResult<Option<F::File>> {
     let (prefix, suffix) = id.bytes().split_at(1);
     let mut prefix_buf = [0u8; 2];
     hex::encode_to_slice(prefix, &mut prefix_buf).unwrap();
@@ -38,8 +38,8 @@ async fn get_loose_object_file<G: FileSystem>(
     Ok(Some(file))
 }
 
-pub(crate) async fn read_loose_object_size_type<G: FileSystem>(
-    repo: &Repo<G>,
+pub(crate) async fn read_loose_object_size_type<F: FileSystem>(
+    repo: &Repo<F>,
     id: ObjectId,
 ) -> GResult<Option<(ObjectSize, ObjectType)>> {
     let file = get_loose_object_file(repo, id).await?;
@@ -52,8 +52,8 @@ pub(crate) async fn read_loose_object_size_type<G: FileSystem>(
     Ok(Some((size, object_type)))
 }
 
-pub(crate) async fn read_loose_object<G: FileSystem>(
-    repo: &Repo<G>,
+pub(crate) async fn read_loose_object<F: FileSystem>(
+    repo: &Repo<F>,
     id: ObjectId,
 ) -> GResult<Option<RawObject>> {
     let file = get_loose_object_file(repo, id).await?;

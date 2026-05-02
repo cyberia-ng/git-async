@@ -40,8 +40,8 @@ pub(crate) struct IndexedPackFile<'f, F> {
     pub(crate) pack: CachingPageReader<F>,
 }
 
-pub(crate) async fn lookup_size_type<G: FileSystem>(
-    repo: &Repo<G>,
+pub(crate) async fn lookup_size_type<F: FileSystem>(
+    repo: &Repo<F>,
     id: ObjectId,
 ) -> GResult<Option<(ObjectSize, ObjectType)>> {
     let opt_size_type = read_loose_object_size_type(repo, id).await?;
@@ -58,8 +58,8 @@ pub(crate) async fn lookup_size_type<G: FileSystem>(
     Ok(Some((final_object.size, object_type)))
 }
 
-pub(crate) async fn lookup<G: FileSystem>(
-    repo: &Repo<G>,
+pub(crate) async fn lookup<F: FileSystem>(
+    repo: &Repo<F>,
     id: ObjectId,
 ) -> GResult<Option<RawObject>> {
     let loose_object = read_loose_object(repo, id).await?;
@@ -79,11 +79,11 @@ pub(crate) async fn lookup<G: FileSystem>(
     Ok(Some(RawObject { object_type, body }))
 }
 
-pub(crate) async fn find_packed_object<'p, G: FileSystem>(
-    repo: &Repo<G>,
+pub(crate) async fn find_packed_object<'p, F: FileSystem>(
+    repo: &Repo<F>,
     pack_cache: &'p IndexCache,
     id: ObjectId,
-) -> GResult<Option<(IndexedPackFile<'p, G::File>, Offset)>> {
+) -> GResult<Option<(IndexedPackFile<'p, F::File>, Offset)>> {
     for (pack_meta, fanout, offsets) in &pack_cache.indexes {
         let idx_file = repo.pack_dir.open_file(&pack_meta.index_filename).await?;
         let mut idx_file = CachingPageReader::new(idx_file);

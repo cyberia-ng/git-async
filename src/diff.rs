@@ -142,13 +142,13 @@ pub struct TreeDiff {
 }
 
 impl TreeDiff {
-    pub async fn new<G: FileSystem>(repo: &Repo<G>, left: &Tree, right: &Tree) -> GResult<Self> {
+    pub async fn new<F: FileSystem>(repo: &Repo<F>, left: &Tree, right: &Tree) -> GResult<Self> {
         Self::new_cancelable(repo, left, right, async || false).await
     }
 
     #[allow(clippy::too_many_lines)]
-    pub async fn new_cancelable<G: FileSystem>(
-        repo: &Repo<G>,
+    pub async fn new_cancelable<F: FileSystem>(
+        repo: &Repo<F>,
         left: &Tree,
         right: &Tree,
         mut cancel: impl AsyncFnMut() -> bool,
@@ -300,14 +300,14 @@ impl TreeDiff {
         Ok(Self { entries: out })
     }
 
-    pub async fn to_text_diff<G: FileSystem>(&self, repo: &Repo<G>) -> GResult<Diff> {
+    pub async fn to_text_diff<F: FileSystem>(&self, repo: &Repo<F>) -> GResult<Diff> {
         self.to_text_diff_full(repo, &TextDiffConfig::default(), async || false)
             .await
     }
 
-    pub async fn to_text_diff_full<G: FileSystem>(
+    pub async fn to_text_diff_full<F: FileSystem>(
         &self,
-        repo: &Repo<G>,
+        repo: &Repo<F>,
         config: &TextDiffConfig,
         mut cancel: impl AsyncFnMut() -> bool,
     ) -> GResult<Diff> {
@@ -323,7 +323,7 @@ impl TreeDiff {
     }
 }
 
-async fn tree<G: FileSystem>(repo: &Repo<G>, id: ObjectId) -> GResult<Tree> {
+async fn tree<F: FileSystem>(repo: &Repo<F>, id: ObjectId) -> GResult<Tree> {
     repo.lookup_object(id)
         .await?
         .peel_to_tree(repo)
@@ -332,9 +332,9 @@ async fn tree<G: FileSystem>(repo: &Repo<G>, id: ObjectId) -> GResult<Tree> {
 }
 
 impl DiffEntry<(ObjectId, ObjectId)> {
-    pub async fn resolve<G: FileSystem>(
+    pub async fn resolve<F: FileSystem>(
         &self,
-        repo: &Repo<G>,
+        repo: &Repo<F>,
         config: TextDiffConfig,
     ) -> GResult<DiffEntry<TextDiff<'static, 'static, [u8]>>> {
         match self {
@@ -382,8 +382,8 @@ impl DiffEntry<(ObjectId, ObjectId)> {
     }
 }
 
-async fn read_leaf<G: FileSystem>(
-    repo: &Repo<G>,
+async fn read_leaf<F: FileSystem>(
+    repo: &Repo<F>,
     entry_type: TreeEntryType,
     id: ObjectId,
 ) -> GResult<Vec<u8>> {
