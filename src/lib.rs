@@ -41,7 +41,7 @@
 //! #     type File = MyFile;
 //! # }
 //! async fn example() -> GResult<()> {
-//!     let repo = Repo::<MyFS>::new(MyDirectory::new("a-repository/.git")).await?;
+//!     let repo = Repo::<MyFS>::open(MyDirectory::new("a-repository")).await?;
 //!     let head = repo.head().await?;
 //!     let commit = head.peel_to_commit(&repo).await?.unwrap();
 //!     let message = commit.message();

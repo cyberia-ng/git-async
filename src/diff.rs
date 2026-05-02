@@ -406,7 +406,7 @@ mod tests {
         reference::RefName,
         test::{
             helpers::{make_basic_repo, make_file},
-            impls::TestGenerics,
+            impls::TestFileSystem,
         },
     };
     use futures::executor::block_on;
@@ -419,7 +419,7 @@ mod tests {
 
     use super::*;
 
-    fn head_tree(repo: &Repo<TestGenerics>) -> Tree {
+    fn head_tree(repo: &Repo<TestFileSystem>) -> Tree {
         let head = block_on(repo.lookup_ref(&RefName::Head)).unwrap();
         block_on(head.peel_to_tree(repo)).unwrap().unwrap()
     }

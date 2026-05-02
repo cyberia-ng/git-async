@@ -1,5 +1,5 @@
 use crate::{
-    error::GResult,
+    error::{Error, GResult},
     file_system::{Directory, FileSystem, FileSystemError, search_for_files},
     object::{Object, ObjectId},
     object_store::{ObjectSize, ObjectType, cache::IndexCache},
@@ -27,11 +27,8 @@ impl RepoConfig {
     }
 
     /// Open a repo with this configuration.
-    ///
-    /// The directory must point to the **git directory**, not the working tree.
-    /// In non-bare repositories this is the `.git` subdirectory.
-    pub async fn open<G: FileSystem>(&self, git_dir: G::Directory) -> GResult<Repo<G>> {
-        Repo::new_with_config(git_dir, self).await
+    pub async fn open<G: FileSystem>(&self, open_dir: G::Directory) -> GResult<Repo<G>> {
+        Repo::open_with_config(open_dir, self).await
     }
 }
 
@@ -56,10 +53,11 @@ pub struct Repo<G: FileSystem> {
 }
 
 impl<G: FileSystem> Repo<G> {
-    pub(crate) async fn new_with_config(
-        git_dir: G::Directory,
+    pub(crate) async fn open_with_config(
+        open_dir: G::Directory,
         config: &RepoConfig,
     ) -> GResult<Self> {
+        let git_dir = Self::resolve_git_dir(open_dir).await?;
         let pack_dir = git_dir
             .open_subdir(b"objects")
             .await?
@@ -73,12 +71,26 @@ impl<G: FileSystem> Repo<G> {
         })
     }
 
+    pub(crate) async fn resolve_git_dir(open_dir: G::Directory) -> GResult<G::Directory> {
+        let head = open_dir.open_file(b"HEAD").await;
+        match head {
+            Ok(_) => Ok(open_dir),
+            Err(FileSystemError::NotFound(_)) => {
+                let git_dir = open_dir.open_subdir(b".git").await?;
+                let head = git_dir.open_file(b"HEAD").await;
+                match head {
+                    Ok(_) => Ok(git_dir),
+                    Err(FileSystemError::NotFound(_)) => Err(Error::NotAGitRepository),
+                    Err(e) => Err(e.into()),
+                }
+            }
+            Err(e) => Err(e.into()),
+        }
+    }
+
     /// Open the repository located at `git_dir` using a default [`RepoConfig`].
-    ///
-    /// The directory must point to the **git directory**, not the working tree.
-    /// In non-bare repositories this is the `.git` subdirectory.
-    pub async fn new(git_dir: G::Directory) -> GResult<Self> {
-        Self::new_with_config(git_dir, &RepoConfig::default()).await
+    pub async fn open(git_dir: G::Directory) -> GResult<Self> {
+        Self::open_with_config(git_dir, &RepoConfig::default()).await
     }
 
     /// Collect all the refs tracked by the repository
@@ -140,7 +152,7 @@ mod tests {
     use super::*;
     use crate::{
         reference::RefTarget,
-        test::{helpers::make_basic_repo, repo::TestRepo},
+        test::{helpers::make_basic_repo, impls::TestFileSystem, repo::TestRepo},
     };
     use futures::executor::block_on;
 
@@ -186,5 +198,12 @@ mod tests {
         .into_iter()
         .collect();
         assert_eq!(&refs, &expected);
+    }
+
+    #[test]
+    fn open_non_bare_repo() {
+        let test_repo = make_basic_repo().unwrap();
+        let root_dir = test_repo.root_dir();
+        block_on(Repo::<TestFileSystem>::open(root_dir)).unwrap();
     }
 }

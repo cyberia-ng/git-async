@@ -3,8 +3,8 @@ use crate::{
     test::directory::{TestRepoDirectory, TestRepoFile},
 };
 
-pub struct TestGenerics;
-impl FileSystem for TestGenerics {
+pub struct TestFileSystem;
+impl FileSystem for TestFileSystem {
     type File = TestRepoFile;
     type Directory = TestRepoDirectory;
 }

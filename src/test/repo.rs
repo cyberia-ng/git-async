@@ -2,7 +2,7 @@ use crate::{
     repo::{Repo, RepoConfig},
     test::{
         directory::{TestRepoDirectory, TestRepoFile},
-        impls::TestGenerics,
+        impls::TestFileSystem,
     },
 };
 
@@ -104,6 +104,13 @@ impl TestRepo {
         Ok(())
     }
 
+    pub fn root_dir(&self) -> TestRepoDirectory {
+        TestRepoDirectory {
+            root: self.location.clone(),
+            sub_path: PathBuf::new(),
+        }
+    }
+
     pub fn git_dir(&self) -> TestRepoDirectory {
         TestRepoDirectory {
             root: self.location.clone(),
@@ -111,7 +118,7 @@ impl TestRepo {
         }
     }
 
-    pub fn repo(&self) -> Repo<TestGenerics> {
+    pub fn repo(&self) -> Repo<TestFileSystem> {
         block_on(RepoConfig::default().open(self.git_dir())).unwrap()
     }
 

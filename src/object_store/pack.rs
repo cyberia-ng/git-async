@@ -342,7 +342,7 @@ mod tests {
         repo::RepoConfig,
         test::{
             helpers::{make_basic_repo, make_packfile_repo, make_similar_commits},
-            impls::TestGenerics,
+            impls::TestFileSystem,
         },
     };
     use futures::executor::block_on;
@@ -595,7 +595,7 @@ a tag
         let repo = block_on(
             RepoConfig::default()
                 .index_offset_cache_max(0)
-                .open::<TestGenerics>(test_repo.git_dir()),
+                .open::<TestFileSystem>(test_repo.git_dir()),
         )
         .unwrap();
         let raw_object = block_on(lookup(

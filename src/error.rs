@@ -62,6 +62,7 @@ pub enum Error {
     NotAnnotatedWithRepo,
     UnexpectedObjectType(UnexpectedObjectType),
     DiffCanceled,
+    NotAGitRepository,
 }
 
 impl From<UnexpectedObjectType> for Error {
