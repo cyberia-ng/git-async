@@ -1,4 +1,4 @@
-//! A module for errors which may occur during the use of `git-future`
+//! A module for errors which may occur during the use of `git-async`
 
 use crate::{
     file_system::FileSystemError,

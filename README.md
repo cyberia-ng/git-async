@@ -1,4 +1,4 @@
-# git-future
+# git-async
 
 An async-first Rust library for reading git repositories
 
@@ -42,5 +42,5 @@ future versions may support them, but for now they are not implemented.
   `git diff` manages to be so fast, but I imagine it uses the packfile delta
   encoding somehow to optimize diffing.
 
-[`file_system`]: https://docs.rs/git-future/latest/git_future/file_system/index.html
-[`Repo`]: https://docs.rs/git-future/latest/git_future/struct.Repo.html
+[`file_system`]: https://docs.rs/git-async/latest/git_async/file_system/index.html
+[`Repo`]: https://docs.rs/git-async/latest/git_async/struct.Repo.html

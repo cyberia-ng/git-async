@@ -1,6 +1,6 @@
 //! An implementation of filesystem operations for the web
 //!
-//! This module implements the `git-future` filesystem operations using either
+//! This module implements the `git-async` filesystem operations using either
 //! the [Web File System
 //! API](https://developer.mozilla.org/en-US/docs/Web/API/File_System_API) or
 //! the [File and Directory Entries
@@ -11,7 +11,7 @@
 //! Using the Web File System API:
 //! ```
 //! # use wasm_bindgen::JsError;
-//! # use git_future::{Repo, RepoConfig, web::{WebDirectory, WebFileSystem}};
+//! # use git_async::{Repo, RepoConfig, web::{WebDirectory, WebFileSystem}};
 //! async fn open_repo(handle: &web_sys::FileSystemDirectoryHandle) -> Result<Repo<WebFileSystem>, JsError> {
 //!     let repo = Repo::open(WebDirectory::new(handle)?)
 //!         .await
@@ -23,7 +23,7 @@
 //! Using the Web File and Directory Entries API:
 //! ```
 //! # use wasm_bindgen::JsError;
-//! # use git_future::{Repo, RepoConfig, web::{WebDirectory, WebFileSystem}};
+//! # use git_async::{Repo, RepoConfig, web::{WebDirectory, WebFileSystem}};
 //! async fn open_repo(file_list: &web_sys::FileList) -> Result<Repo<WebFileSystem>, JsError> {
 //!     let repo = Repo::open(WebDirectory::new(file_list)?)
 //!         .await

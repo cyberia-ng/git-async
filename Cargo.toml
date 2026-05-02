@@ -1,10 +1,10 @@
 [package]
-name = "git-future"
-version = "0.1.5"
+name = "git-async"
+version = "0.1.0"
 edition = "2024"
 description = "An async-first library for reading git repositories"
 readme = "README.md"
-repository = "https://github.com/cyberia-ng/git-future"
+repository = "https://github.com/cyberia-ng/git-async"
 license = "MIT OR Apache-2.0"
 keywords = ["async", "git"]
 categories = ["development-tools", "no-std"]

@@ -41,7 +41,7 @@ pub use crate::object_store::{ObjectSize, ObjectType};
 
 /// The ID of a git object
 ///
-/// `git-future` only supports SHA-1 repositories, so this is always 20 bytes or
+/// `git-async` only supports SHA-1 repositories, so this is always 20 bytes or
 /// 40 hex characters
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Accessors)]
 pub struct ObjectId {

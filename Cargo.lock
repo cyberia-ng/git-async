@@ -232,8 +232,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "git-future"
-version = "0.1.5"
+name = "git-async"
+version = "0.1.0"
 dependencies = [
  "accessory",
  "chrono",

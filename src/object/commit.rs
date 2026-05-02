@@ -98,8 +98,7 @@ impl Commit {
 
     /// Get an iterator over any additional headers in the commit.
     ///
-    /// Additional headers are those not parsed by `git-future`, e.g.
-    /// `mergetag`.
+    /// Additional headers are those not parsed by `git-async`, e.g. `mergetag`.
     pub fn additional_headers(&self) -> ObjectHeaderIter<'_> {
         ObjectHeaderIter::new(&self.body, &self.additional_headers)
     }
