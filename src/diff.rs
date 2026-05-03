@@ -1,3 +1,29 @@
+//! A module for computing diffs between git trees
+//!
+//! # Usage
+//!
+//! First, construct a [`TreeDiff`] object, which walks the specified trees and
+//! finds differing files. Then, use [`TreeDiff::to_text_diff`] to perform a
+//! line-by-line diff on each differing file.
+//!
+//! # Example
+//!
+//! ```
+//! # use git_async::{diff::{TreeDiff, Diff}, error::GResult, object::Tree, Repo, file_system::FileSystem};
+//! async fn get_diff<F: FileSystem>(repo: &Repo<F>, left: &Tree, right: &Tree) -> GResult<Diff> {
+//!     let tree_diff = TreeDiff::new(repo, left, right).await?;
+//!     tree_diff.to_text_diff(repo).await
+//! }
+//! ```
+//!
+//! # Notes
+//!
+//! This algorithm is relatively naive, in that it simply loads each object in
+//! full and then computes their diff. You will find that using `git diff` on
+//! the command line is much faster. This is likely because because `git diff`
+//! may be aware of the packfile delta encoding and may use it to compute
+//! efficient diffs.
+
 use crate::{
     Repo,
     error::{Error, GResult},
@@ -10,6 +36,7 @@ use alloc::{string::String, vec::Vec};
 use core::convert::Infallible;
 use similar::{TextDiff, TextDiffConfig};
 
+/// A path for a file in a diff
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Path(Vec<u8>);
 
@@ -26,10 +53,12 @@ impl core::fmt::Debug for Path {
 }
 
 impl Path {
+    /// View the path as a slice of bytes
     pub fn as_slice(&self) -> &[u8] {
         self.0.as_slice()
     }
 
+    /// Consume the path and return its inner [`Vec<u8>`]
     pub fn inner(self) -> Vec<u8> {
         self.0
     }
@@ -48,6 +77,12 @@ fn join(path: Option<&Path>, component: &[u8]) -> Path {
     }
 }
 
+/// Represents a diff of a single file
+///
+/// It is generic over the content of the file diff. For tree diffs, `Content`
+/// is a pair of [`ObjectId`]s, one of which may be zero. For full diffs,
+/// `Content` is a `similar::TextDiff`.
+#[expect(missing_docs)]
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub enum DiffEntry<Content> {
     LeftOnly {
@@ -69,6 +104,7 @@ pub enum DiffEntry<Content> {
 }
 
 impl<Content> DiffEntry<Content> {
+    /// The content of the diff entry
     pub fn content(&self) -> &Content {
         match self {
             DiffEntry::LeftOnly { content, .. }
@@ -77,6 +113,7 @@ impl<Content> DiffEntry<Content> {
         }
     }
 
+    /// The path of the file that the entry represents
     pub fn path(&self) -> &Path {
         match self {
             DiffEntry::LeftOnly { path, .. }
@@ -85,11 +122,13 @@ impl<Content> DiffEntry<Content> {
         }
     }
 
+    /// Map a function over the content contained in the entry.
     pub fn map_content<T>(&self, fun: impl Fn(&Content) -> T) -> DiffEntry<T> {
         self.map_content_res(|c| Ok::<T, Infallible>(fun(c)))
             .unwrap()
     }
 
+    /// Map a fallible function over the content contained in the entry.
     pub fn map_content_res<T, E>(
         &self,
         fun: impl Fn(&Content) -> Result<T, E>,
@@ -129,23 +168,64 @@ impl<Content> DiffEntry<Content> {
     }
 }
 
+/// A "full" diff, i.e. one which encapsulates line changes between files
+///
+/// This is constructed by first creating a [`TreeDiff`] object and then calling
+/// the [`TreeDiff::to_text_diff`] method.
 #[derive(Accessors)]
 pub struct Diff {
+    /// The entries of the diff, one per differing path in the tree
     #[access(get(ty(&[DiffEntry<TextDiff<'static, 'static, [u8]>>])))]
     entries: Vec<DiffEntry<TextDiff<'static, 'static, [u8]>>>,
 }
 
+/// A diff of git trees, holding the [`ObjectId`]s of differing files
 #[derive(Accessors)]
 pub struct TreeDiff {
+    /// The entries of the diff, one per differing path in the tree
     #[access(get(ty(&[DiffEntry<(ObjectId, ObjectId)>])))]
     entries: Vec<DiffEntry<(ObjectId, ObjectId)>>,
 }
 
 impl TreeDiff {
+    /// Construct a [`TreeDiff`] by diffing two trees
     pub async fn new<F: FileSystem>(repo: &Repo<F>, left: &Tree, right: &Tree) -> GResult<Self> {
         Self::new_cancelable(repo, left, right, async || false).await
     }
 
+    /// Construct a [`TreeDiff`] by diffing two trees
+    ///
+    /// The `cancel` parameter is a function which may cancel the diff operation
+    /// by returning `true` at any point. It is called regularly while the diff
+    /// operation is running.
+    ///
+    /// For example,
+    /// ```
+    /// # use git_async::{diff::TreeDiff, error::GResult, object::Tree, Repo, file_system::FileSystem};
+    /// # use std::rc::Rc;
+    /// # use core::cell::Cell;
+    /// struct CancelableDiffFactory { canceled: Rc<Cell<bool>> }
+    /// impl CancelableDiffFactory {
+    ///     pub async fn make_diff<F: FileSystem>(
+    ///         &self,
+    ///         repo: &Repo<F>,
+    ///         left: &Tree,
+    ///         right: &Tree
+    ///     ) -> GResult<TreeDiff> {
+    ///         let canceled = self.canceled.clone();
+    ///         let cancel = async move || canceled.get();
+    ///         TreeDiff::new_cancelable(repo, left, right, cancel).await
+    ///     }
+    ///
+    ///     pub fn cancel(&self) {
+    ///         self.canceled.set(true);
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// In this example, a diff operation may be started by some async routine,
+    /// and then canceled by another by calling the
+    /// `CancelableDiffFactory::cancel` method.
     #[allow(clippy::too_many_lines)]
     pub async fn new_cancelable<F: FileSystem>(
         repo: &Repo<F>,
@@ -300,11 +380,19 @@ impl TreeDiff {
         Ok(Self { entries: out })
     }
 
+    /// Turn the [`TreeDiff`] into a [`Diff`] by creating a line diff of each
+    /// file.
     pub async fn to_text_diff<F: FileSystem>(&self, repo: &Repo<F>) -> GResult<Diff> {
         self.to_text_diff_full(repo, &TextDiffConfig::default(), async || false)
             .await
     }
 
+    /// Like [`TreeDiff::to_text_diff`] but accepts a
+    /// [`similar::TextDiffConfig`] parameter to configure the file diff
+    /// operations and a `cancel` parameter to externally cancel the diff.
+    ///
+    /// The `cancel` parameter is analogous to the `cancel` parameter on
+    /// [`TreeDiff::new_cancelable`]; see there for further details.
     pub async fn to_text_diff_full<F: FileSystem>(
         &self,
         repo: &Repo<F>,
@@ -332,6 +420,8 @@ async fn tree<F: FileSystem>(repo: &Repo<F>, id: ObjectId) -> GResult<Tree> {
 }
 
 impl DiffEntry<(ObjectId, ObjectId)> {
+    /// Look up the objects encoded in the diff entry and compute a diff of the
+    /// files.
     pub async fn resolve<F: FileSystem>(
         &self,
         repo: &Repo<F>,
