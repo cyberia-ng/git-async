@@ -28,12 +28,12 @@ use crate::{
     Repo,
     error::{Error, GResult},
     file_system::FileSystem,
-    object::{Object, ObjectId, Tree, TreeEntry, TreeEntryType},
+    object::{Object, ObjectId, Tree, TreeEntry, TreeEntryIter, TreeEntryType},
 };
 use accessory::Accessors;
 use alloc::format;
 use alloc::{string::String, vec::Vec};
-use core::convert::Infallible;
+use core::{cmp::Ordering, convert::Infallible};
 use similar::{TextDiff, TextDiffConfig};
 
 /// A path for a file in a diff
@@ -226,21 +226,21 @@ impl TreeDiff {
     /// In this example, a diff operation may be started by some async routine,
     /// and then canceled by another by calling the
     /// `CancelableDiffFactory::cancel` method.
-    #[allow(clippy::too_many_lines)]
+    #[expect(clippy::too_many_lines)]
     pub async fn new_cancelable<F: FileSystem>(
         repo: &Repo<F>,
         left: &Tree,
         right: &Tree,
         mut cancel: impl AsyncFnMut() -> bool,
     ) -> GResult<Self> {
+        type StackInner = (Option<Path>, Option<Tree>, Option<Tree>);
         if left.id() == right.id() {
             return Ok(Self {
                 entries: Vec::new(),
             });
         }
         let mut out: Vec<DiffEntry<(ObjectId, ObjectId)>> = Vec::new();
-        #[allow(clippy::type_complexity)]
-        let mut stack: Vec<(Option<Path>, Option<Tree>, Option<Tree>)> = Vec::new();
+        let mut stack: Vec<StackInner> = Vec::new();
         stack.push((None, Some(left.clone()), Some(right.clone())));
 
         while let Some((parent_path, left, right)) = stack.pop() {
@@ -252,127 +252,100 @@ impl TreeDiff {
             if cancel().await {
                 return Err(Error::DiffCanceled);
             }
-            let (left, right) = match (left, right) {
-                (Some(left), Some(right)) => (left, right),
-                (Some(left), None) => {
-                    for entry in left.entries() {
-                        let path = join(parent_path.as_ref(), entry.name());
-                        if entry.entry_type() == TreeEntryType::Tree {
-                            let tree = tree(repo, entry.id()).await?;
-                            stack.push((Some(path), None, Some(tree)));
-                        } else {
-                            out.push(DiffEntry::LeftOnly {
-                                path,
-                                entry_type: entry.entry_type(),
-                                content: (entry.id(), ObjectId::zero()),
-                            });
-                        }
-                    }
-                    continue;
-                }
-                (None, Some(right)) => {
-                    for entry in right.entries() {
-                        let path = join(parent_path.as_ref(), entry.name());
-                        if entry.entry_type() == TreeEntryType::Tree {
-                            let tree = tree(repo, entry.id()).await?;
-                            stack.push((Some(path), None, Some(tree)));
-                        } else {
-                            out.push(DiffEntry::RightOnly {
-                                path,
-                                entry_type: entry.entry_type(),
-                                content: (ObjectId::zero(), entry.id()),
-                            });
-                        }
-                    }
-                    continue;
-                }
-                (None, None) => unreachable!(),
-            };
 
-            let mut left_only: Vec<TreeEntry> = Vec::new();
-            let mut right_only: Vec<TreeEntry> = Vec::new();
-            let mut both: Vec<(TreeEntry, TreeEntry)> = Vec::new();
-            for left_entry in left.entries() {
-                let right_entry = right.entries().find(|e| e.name() == left_entry.name());
-                match right_entry {
-                    Some(e) => both.push((left_entry, e)),
-                    None => left_only.push(left_entry),
-                }
-            }
-            for right_entry in right.entries() {
-                if both
-                    .iter()
-                    .find(|(_, e)| e.name() == right_entry.name())
-                    .is_none()
+            let mut left_entries: Option<TreeEntryIter> = left.as_ref().map(Tree::entries);
+            let mut right_entries: Option<TreeEntryIter> = right.as_ref().map(Tree::entries);
+            let mut left_entry: Option<TreeEntry> = left_entries.as_mut().and_then(Iterator::next);
+            let mut right_entry: Option<TreeEntry> =
+                right_entries.as_mut().and_then(Iterator::next);
+            while left_entry.is_some() || right_entry.is_some() {
+                let name_ordering: Ordering = match (&left_entry, &right_entry) {
+                    (None, None) => Ordering::Equal,
+                    (None, Some(_)) => Ordering::Greater,
+                    (Some(_), None) => Ordering::Less,
+                    (Some(l), Some(r)) => l.name().cmp(r.name()),
+                };
+                if name_ordering == Ordering::Equal
+                    && left_entry.as_ref().map(TreeEntry::id)
+                        == right_entry.as_ref().map(TreeEntry::id)
                 {
-                    right_only.push(right_entry);
-                }
-            }
-            for entry in left_only {
-                let path = join(parent_path.as_ref(), entry.name());
-                if entry.entry_type() == TreeEntryType::Tree {
-                    let left_tree = tree(repo, entry.id()).await?;
-                    stack.push((Some(path), Some(left_tree), None));
-                } else {
-                    out.push(DiffEntry::LeftOnly {
-                        path,
-                        entry_type: entry.entry_type(),
-                        content: (entry.id(), ObjectId::zero()),
-                    });
-                }
-            }
-            for entry in right_only {
-                let path = join(parent_path.as_ref(), entry.name());
-                if entry.entry_type() == TreeEntryType::Tree {
-                    let right_tree = tree(repo, entry.id()).await?;
-                    stack.push((Some(path), None, Some(right_tree)));
-                } else {
-                    out.push(DiffEntry::RightOnly {
-                        path,
-                        entry_type: entry.entry_type(),
-                        content: (ObjectId::zero(), entry.id()),
-                    });
-                }
-            }
-            for (left, right) in both {
-                if left.id() == right.id() {
+                    left_entry = left_entries.as_mut().and_then(Iterator::next);
+                    right_entry = right_entries.as_mut().and_then(Iterator::next);
                     continue;
                 }
-                let name = left.name();
-                match (left.entry_type(), right.entry_type()) {
-                    (TreeEntryType::Tree, TreeEntryType::Tree) => {
-                        let left = tree(repo, left.id()).await?;
-                        let right = tree(repo, right.id()).await?;
-                        let path = join(parent_path.as_ref(), name);
-                        stack.push((Some(path), Some(left), Some(right)));
+
+                match name_ordering {
+                    Ordering::Less => {
+                        if let Some(left) = left_entry {
+                            let path = join(parent_path.as_ref(), left.name());
+                            if left.entry_type() == TreeEntryType::Tree {
+                                let tree = repo.lookup_object(left.id()).await?.tree()?;
+                                stack.push((Some(path), Some(tree), None));
+                            } else {
+                                out.push(DiffEntry::LeftOnly {
+                                    path,
+                                    entry_type: left.entry_type(),
+                                    content: (left.id(), ObjectId::zero()),
+                                });
+                            }
+                        }
+                        left_entry = left_entries.as_mut().and_then(Iterator::next);
                     }
-                    (TreeEntryType::Tree, _) => {
-                        let path = join(parent_path.as_ref(), name);
-                        out.push(DiffEntry::RightOnly {
-                            path: path.clone(),
-                            entry_type: right.entry_type(),
-                            content: (ObjectId::zero(), right.id()),
-                        });
-                        let left_tree = tree(repo, left.id()).await?;
-                        stack.push((Some(path), Some(left_tree), None));
+                    Ordering::Greater => {
+                        if let Some(right) = right_entry {
+                            let path = join(parent_path.as_ref(), right.name());
+                            if right.entry_type() == TreeEntryType::Tree {
+                                let tree = repo.lookup_object(right.id()).await?.tree()?;
+                                stack.push((Some(path), None, Some(tree)));
+                            } else {
+                                out.push(DiffEntry::RightOnly {
+                                    path,
+                                    entry_type: right.entry_type(),
+                                    content: (ObjectId::zero(), right.id()),
+                                });
+                            }
+                        }
+                        right_entry = right_entries.as_mut().and_then(Iterator::next);
                     }
-                    (_, TreeEntryType::Tree) => {
-                        let path = join(parent_path.as_ref(), name);
-                        out.push(DiffEntry::LeftOnly {
-                            path: path.clone(),
-                            entry_type: left.entry_type(),
-                            content: (left.id(), ObjectId::zero()),
-                        });
-                        let right_tree = tree(repo, right.id()).await?;
-                        stack.push((Some(path), None, Some(right_tree)));
-                    }
-                    _ => {
-                        out.push(DiffEntry::Both {
-                            path: join(parent_path.as_ref(), name),
-                            left_type: left.entry_type(),
-                            right_type: right.entry_type(),
-                            content: (left.id(), right.id()),
-                        });
+                    Ordering::Equal => {
+                        if let (Some(left), Some(right)) = (left_entry, right_entry) {
+                            let path = join(parent_path.as_ref(), left.name()); // names are equal
+                            match (left.entry_type(), right.entry_type()) {
+                                (TreeEntryType::Tree, TreeEntryType::Tree) => {
+                                    let left_tree = repo.lookup_object(left.id()).await?.tree()?;
+                                    let right_tree =
+                                        repo.lookup_object(right.id()).await?.tree()?;
+                                    stack.push((Some(path), Some(left_tree), Some(right_tree)));
+                                }
+                                (TreeEntryType::Tree, _) => {
+                                    let left_tree = repo.lookup_object(left.id()).await?.tree()?;
+                                    stack.push((Some(path.clone()), Some(left_tree), None));
+                                    out.push(DiffEntry::RightOnly {
+                                        path,
+                                        entry_type: right.entry_type(),
+                                        content: (ObjectId::zero(), right.id()),
+                                    });
+                                }
+                                (_, TreeEntryType::Tree) => {
+                                    let right_tree =
+                                        repo.lookup_object(right.id()).await?.tree()?;
+                                    stack.push((Some(path.clone()), None, Some(right_tree)));
+                                    out.push(DiffEntry::LeftOnly {
+                                        path,
+                                        entry_type: left.entry_type(),
+                                        content: (left.id(), ObjectId::zero()),
+                                    });
+                                }
+                                _ => out.push(DiffEntry::Both {
+                                    path,
+                                    left_type: left.entry_type(),
+                                    right_type: right.entry_type(),
+                                    content: (left.id(), right.id()),
+                                }),
+                            }
+                        }
+                        left_entry = left_entries.as_mut().and_then(Iterator::next);
+                        right_entry = right_entries.as_mut().and_then(Iterator::next);
                     }
                 }
             }
@@ -409,14 +382,6 @@ impl TreeDiff {
         }
         Ok(Diff { entries: out })
     }
-}
-
-async fn tree<F: FileSystem>(repo: &Repo<F>, id: ObjectId) -> GResult<Tree> {
-    repo.lookup_object(id)
-        .await?
-        .peel_to_tree(repo)
-        .await?
-        .ok_or_else(|| Error::MalformedObject(id))
 }
 
 impl DiffEntry<(ObjectId, ObjectId)> {
